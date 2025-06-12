@@ -1,0 +1,6 @@
+apify-client
+matplotlib
+networkx
+numpy
+mpld3
+

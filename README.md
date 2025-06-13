@@ -38,6 +38,7 @@ python main.py --username example_user --depth 2 --posts 3
 * `--depth`: Number of recursive levels to follow (default: 2)
 * `--posts`: Number of posts to fetch per user (default: 3)
 * `--no-cache`: Ignore previously saved data and re-fetch everything
+* `--suspicious-calc`: Calculate suspicious scores for isolated profiles (i.e., nodes connected only to the main user) and highlight those with high scores in red
 
 ## Project Structure
 

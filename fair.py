@@ -14,6 +14,7 @@ def main():
     parser.add_argument("--no-cache", action="store_true", help="Ignore existing cache and generate new data")
     parser.add_argument("--suspicious-calc", action="store_true",
                         help="Enable suspicious score calculation and red highlighting for suspicious nodes")
+    
     args = parser.parse_args()
 
     username = args.username
@@ -34,6 +35,7 @@ def main():
     explored_users = set()
 
     print("[INFO] Starting recursive exploration and graph generation...")
+    
     explore_users(username, api_keys, cache, cache_path, graph, explored_users,
                   max_depth=max_depth, posts_limit=posts_limit)
 
@@ -47,7 +49,6 @@ def main():
 
     if username in cache:
         print(json.dumps(cache[username], indent=4))
-
 
 if __name__ == "__main__":
     main()

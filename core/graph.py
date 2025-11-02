@@ -1,6 +1,5 @@
 import networkx as nx
 import matplotlib.pyplot as plt
-import mpld3
 import webbrowser
 from datetime import datetime
 from core.metrics import entropy, temporal_entropy, burstiness, transform_burstiness
@@ -164,7 +163,32 @@ def generate_html(graph, explored_users, main_user, cache, suspicius_calc=False,
                             bbox=dict(boxstyle="round", fc="none", ec="none"), ax=ax)
     ax.set_axis_off()
 
+    # Save as SVG and create a minimal HTML wrapper instead of using mpld3
+    svg_file = f"graph_{main_user}.svg"
     html_file = f"graph_{main_user}.html"
-    mpld3.save_html(fig, html_file, no_extras=True)
-    plt.close(fig)
-    webbrowser.open_new_tab(html_file)
+    try:
+        fig.savefig(svg_file, format="svg", bbox_inches="tight")
+        # Write a simple HTML file that embeds the SVG file
+        with open(html_file, "w", encoding="utf-8") as f:
+            f.write(f"""<!doctype html>
+<html lang=\"en\"> 
+<head>
+  <meta charset=\"utf-8\"> 
+  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"> 
+  <title>Graph {main_user}</title>
+  <style>body{{margin:0;padding:0;display:flex;flex-direction:column;align-items:center}}svg{{width:100%;height:auto}}</style>
+</head>
+<body>
+  <h2 style=\"font-family:Arial,Helvetica,sans-serif;\">Graph for {main_user}</h2>
+  <object type=\"image/svg+xml\" data=\"{svg_file}\">Your browser does not support SVG</object>
+</body>
+</html>
+""")
+    finally:
+        plt.close(fig)
+
+    # Open the generated HTML in the default browser
+    try:
+        webbrowser.open_new_tab(html_file)
+    except Exception:
+        pass

@@ -31,19 +31,26 @@ def main():
         cache = load_cache(cache_path)
 
     api_keys = load_api_keys("keys.env")
-    graph = nx.Graph()
+    graph = nx.DiGraph()
     explored_users = set()
 
     print("[INFO] Starting recursive exploration and graph generation...")
     
+    # Persist graph to disk alongside cache for later visualization
+    graph_path = "graph.json"
     explore_users(username, api_keys, cache, cache_path, graph, explored_users,
-                  max_depth=max_depth, posts_limit=posts_limit)
+                  max_depth=max_depth, posts_limit=posts_limit, graph_path=graph_path)
 
     if args.suspicious_calc:
         compute_suspicious_scores(cache, graph, username)
 
     save_cache(cache_path, cache)
-
+    # Save graph structure to disk (nodes, edges, attributes)
+    try:
+        from core.cache import save_graph
+        save_graph(graph_path, graph)
+    except Exception:
+        pass
     generate_html(graph, explored_users, username, cache,
                   suspicius_calc=args.suspicious_calc)
 

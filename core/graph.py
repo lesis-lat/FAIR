@@ -5,6 +5,7 @@ from datetime import datetime
 from core.metrics import entropy, temporal_entropy, burstiness, transform_burstiness
 from core.cache import save_cache
 from core.api import fetch_profile, extract_profile, fetch_posts
+from core.cache import save_graph
 
 def update_graph_node(graph, user, full_name=None, followers=0, following=0):
     if user not in graph:
@@ -12,7 +13,7 @@ def update_graph_node(graph, user, full_name=None, followers=0, following=0):
     else:
         graph.nodes[user]["count"] = graph.nodes[user].get("count", 1) + 1
 
-def explore_users(username, api_keys, cache, cache_path, graph, explored, depth=1, max_depth=2, posts_limit=3):
+def explore_users(username, api_keys, cache, cache_path, graph, explored, depth=1, max_depth=2, posts_limit=3, graph_path=None):
     if depth > max_depth or username in explored:
         return
     explored.add(username)
@@ -30,6 +31,13 @@ def explore_users(username, api_keys, cache, cache_path, graph, explored, depth=
                         cache[username] = profile_info
                         save_cache(cache_path, cache)
                         user_data = profile_info
+                        # persist graph alongside cache when we fetch new data
+                        if graph_path:
+                            try:
+                                save_graph(graph_path, graph)
+                            except Exception:
+                                # non-fatal; don't break exploration if graph saving fails
+                                pass
                         break
             except Exception:
                 continue
@@ -44,13 +52,34 @@ def explore_users(username, api_keys, cache, cache_path, graph, explored, depth=
         return
 
     for post in user_data["latest_posts"]:
-        for relation in (post.get("mentions", []), post.get("tagged_users", []), post.get("commenters", [])):
-            for related_user in relation:
-                if related_user and related_user != username:
-                    update_graph_node(graph, related_user, full_name=related_user)
-                    graph.add_edge(username, related_user)
-                    explore_users(related_user, api_keys, cache, cache_path, graph, explored,
-                                  depth=depth + 1, max_depth=max_depth, posts_limit=posts_limit)
+        # Iterate with explicit relation type so we can record interaction types on edges
+        relations = [
+            ("mentions", "mention"),
+            ("tagged_users", "tag"),
+            ("commenters", "comment")
+        ]
+
+        for key, rel_type in relations:
+            for related_user in post.get(key, []):
+                if not related_user or related_user == username:
+                    continue
+
+                update_graph_node(graph, related_user, full_name=related_user)
+
+                # If edge already exists, append interaction; otherwise create it
+                if graph.has_edge(username, related_user):
+                    edge_data = graph.get_edge_data(username, related_user) or {}
+                    interactions = edge_data.get("interactions", [])
+                    interactions.append({"type": rel_type, "post_id": post.get("id")})
+                    edge_data["interactions"] = interactions
+                    edge_data["weight"] = edge_data.get("weight", 1) + 1
+                    graph.add_edge(username, related_user, **edge_data)
+                else:
+                    graph.add_edge(username, related_user, interactions=[{"type": rel_type, "post_id": post.get("id")}], weight=1)
+
+                # Recurse
+                explore_users(related_user, api_keys, cache, cache_path, graph, explored,
+                              depth=depth + 1, max_depth=max_depth, posts_limit=posts_limit, graph_path=graph_path)
 
 def compute_suspicious_scores(cache, graph, main_user):
     for node in graph.nodes:

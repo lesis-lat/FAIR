@@ -3,8 +3,13 @@ import json
 from core.cache import load_graph, load_cache
 
 
-def generate_html(social_graph, explored_users, main_user, suspicius_calc=False):
-    """Generate interactive HTML visualization using D3.js from an in-memory social_graph object."""
+def generate_html(social_graph, explored_users, main_user, suspicius_calc=False, show_only_main_relations=True):
+    """Generate interactive HTML visualization using D3.js from an in-memory social_graph object.
+
+    By default `show_only_main_relations=True` filters the visualization to include only
+    the `main_user` and users that have at least one relation (incoming or outgoing)
+    with the main user. Set to False to render the full graph.
+    """
     graph = social_graph.graph
     cache = social_graph.cache
 
@@ -17,7 +22,20 @@ def generate_html(social_graph, explored_users, main_user, suspicius_calc=False)
     isolated_nodes = all_nodes - connected_nodes
 
     # Prepare base subgraph
-    if suspicius_calc:
+    if show_only_main_relations:
+        # For directed graphs, consider both predecessors and successors to capture
+        # any relation to the main user. For undirected graphs, neighbors() is sufficient.
+        if graph.is_directed():
+            preds = set(graph.predecessors(main_user)) if main_user in graph else set()
+            succs = set(graph.successors(main_user)) if main_user in graph else set()
+            allowed_nodes = {main_user} | preds | succs
+        else:
+            allowed_nodes = {main_user} | set(graph.neighbors(main_user)) if main_user in graph else {main_user}
+
+        # Ensure allowed nodes exist in the graph
+        allowed_nodes = [n for n in allowed_nodes if n in graph]
+        subgraph = graph.subgraph(allowed_nodes).copy()
+    elif suspicius_calc:
         allowed_nodes = {main_user} | set(graph.neighbors(main_user))
         subgraph = graph.subgraph(allowed_nodes).copy()
     else:
@@ -414,7 +432,7 @@ def generate_html(social_graph, explored_users, main_user, suspicius_calc=False)
         pass
 
 
-def generate_html_from_files(graph_path, cache_path, main_user, suspicius_calc=False):
+def generate_html_from_files(graph_path, cache_path, main_user, suspicius_calc=False, show_only_main_relations=True):
     """Load graph and cache from disk and generate the same HTML visualization.
 
     This is a convenience to build the HTML using the persisted graph file (graph.json)
@@ -433,4 +451,4 @@ def generate_html_from_files(graph_path, cache_path, main_user, suspicius_calc=F
 
     # We don't have the explored_users set here; build a set of nodes seen in cache
     explored_users = set(cache.keys())
-    generate_html(social_graph, explored_users, main_user, suspicius_calc=suspicius_calc)
+    generate_html(social_graph, explored_users, main_user, suspicius_calc=suspicius_calc, show_only_main_relations=show_only_main_relations)

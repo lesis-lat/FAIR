@@ -1,4 +1,5 @@
 import webbrowser
+import json
 from core.cache import load_graph, load_cache
 
 
@@ -195,8 +196,8 @@ def generate_html(social_graph, explored_users, main_user, suspicius_calc=False)
     </div>
     <script>
         let data = {{
-            nodes: {str(nodes_data).replace("'", '"')},
-            links: {str(links_data).replace("'", '"')}
+            nodes: {json.dumps(nodes_data, ensure_ascii=False)},
+            links: {json.dumps(links_data, ensure_ascii=False)}
         }};
 
         // Convert links source/target from id to node object references

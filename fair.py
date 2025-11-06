@@ -3,7 +3,8 @@ import json
 import networkx as nx
 from core.api import load_api_keys
 from core.cache import load_cache, save_cache
-from core.graph import explore_users, compute_suspicious_scores, generate_html
+from core.graph import explore_users, compute_suspicious_scores
+from core.visualization import generate_html_from_files
 
 
 def main():
@@ -51,8 +52,16 @@ def main():
         save_graph(graph_path, graph)
     except Exception:
         pass
-    generate_html(graph, explored_users, username, cache,
-                  suspicius_calc=args.suspicious_calc)
+    # Generate a dynamic, D3-based HTML from the persisted files
+    try:
+        generate_html_from_files(graph_path, cache_path, username, suspicius_calc=args.suspicious_calc)
+    except Exception:
+        # fallback to the older in-memory generator if present
+        try:
+            from core.graph import generate_html as legacy_generate
+            legacy_generate(graph, explored_users, username, cache, suspicius_calc=args.suspicious_calc)
+        except Exception:
+            pass
 
     if username in cache:
         print(json.dumps(cache[username], indent=4))

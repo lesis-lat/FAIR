@@ -15,7 +15,7 @@ def main():
     parser.add_argument("--no-cache", action="store_true", help="Ignore existing cache and generate new data")
     parser.add_argument("--suspicious-calc", action="store_true",
                         help="Enable suspicious score calculation and red highlighting for suspicious nodes")
-    
+
     args = parser.parse_args()
 
     username = args.username
@@ -36,8 +36,7 @@ def main():
     explored_users = set()
 
     print("[INFO] Starting recursive exploration and graph generation...")
-    
-    # Persist graph to disk alongside cache for later visualization
+
     graph_path = "graph.json"
     explore_users(username, api_keys, cache, cache_path, graph, explored_users,
                   max_depth=max_depth, posts_limit=posts_limit, graph_path=graph_path)
@@ -46,20 +45,17 @@ def main():
         compute_suspicious_scores(cache, graph, username)
 
     save_cache(cache_path, cache)
-    # Save graph structure to disk (nodes, edges, attributes)
     try:
         from core.cache import save_graph
         save_graph(graph_path, graph)
     except Exception:
         pass
-    # Generate a dynamic, D3-based HTML from the persisted files
     try:
-        generate_html_from_files(graph_path, cache_path, username, suspicius_calc=args.suspicious_calc)
+        generate_html_from_files(graph_path, cache_path, username, suspicious_calc=args.suspicious_calc)
     except Exception:
-        # fallback to the older in-memory generator if present
         try:
             from core.graph import generate_html as legacy_generate
-            legacy_generate(graph, explored_users, username, cache, suspicius_calc=args.suspicious_calc)
+            legacy_generate(graph, explored_users, username, cache, suspicious_calc=args.suspicious_calc)
         except Exception:
             pass
 

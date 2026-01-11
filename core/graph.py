@@ -1,25 +1,44 @@
-import networkx as nx
-import matplotlib.pyplot as plt
-import webbrowser
 from datetime import datetime
-from core.metrics import entropy, temporal_entropy, burstiness, transform_burstiness
-from core.cache import save_cache
-from core.api import fetch_profile, extract_profile, fetch_posts
-from core.cache import save_graph
 
-def update_graph_node(graph, user, full_name=None, followers=0, following=0):
-    if user not in graph:
-        graph.add_node(user, count=1, full_name=full_name or user, followers=followers, following=following)
+import matplotlib.pyplot as plt
+import networkx as nx
+import webbrowser
+
+from core.api import extract_profile, fetch_posts, fetch_profile
+from core.cache import save_cache, save_graph
+from core.metrics import burstiness, entropy, temporal_entropy, transform_burstiness
+
+def update_graph_node(graph, username, full_name=None, followers=0, following=0):
+    if username not in graph:
+        graph.add_node(
+            username,
+            count=1,
+            full_name=full_name or username,
+            followers=followers,
+            following=following,
+        )
     else:
-        graph.nodes[user]["count"] = graph.nodes[user].get("count", 1) + 1
+        graph.nodes[username]["count"] = graph.nodes[username].get("count", 1) + 1
 
-def explore_users(username, api_keys, cache, cache_path, graph, explored, depth=1, max_depth=2, posts_limit=3, graph_path=None):
+
+def explore_users(
+    username,
+    api_keys,
+    cache,
+    cache_path,
+    graph,
+    explored,
+    depth=1,
+    max_depth=2,
+    posts_limit=3,
+    graph_path=None,
+):
     if depth > max_depth or username in explored:
         return
     explored.add(username)
 
-    user_data = cache.get(username)
-    if not user_data:
+    profile_data = cache.get(username)
+    if not profile_data:
         for key in api_keys:
             try:
                 raw_data = fetch_profile(username, key)
@@ -30,63 +49,78 @@ def explore_users(username, api_keys, cache, cache_path, graph, explored, depth=
                         profile_info["latest_posts"] = posts
                         cache[username] = profile_info
                         save_cache(cache_path, cache)
-                        user_data = profile_info
-                        # persist graph alongside cache when we fetch new data
+                        profile_data = profile_info
                         if graph_path:
                             try:
                                 save_graph(graph_path, graph)
                             except Exception:
-                                # non-fatal; don't break exploration if graph saving fails
                                 pass
                         break
             except Exception:
                 continue
 
-    if not user_data or user_data.get("account_type") == "Private":
+    if not profile_data or profile_data.get("account_type") == "Private":
         return
 
-    update_graph_node(graph, username, full_name=user_data.get("full_name", username),
-                      followers=user_data.get("followers", 0), following=user_data.get("following", 0))
+    update_graph_node(
+        graph,
+        username,
+        full_name=profile_data.get("full_name", username),
+        followers=profile_data.get("followers", 0),
+        following=profile_data.get("following", 0),
+    )
 
-    if "latest_posts" not in user_data:
+    if "latest_posts" not in profile_data:
         return
 
-    for post in user_data["latest_posts"]:
-        # Iterate with explicit relation type so we can record interaction types on edges
+    for post in profile_data["latest_posts"]:
         relations = [
             ("mentions", "mention"),
             ("tagged_users", "tag"),
-            ("commenters", "comment")
+            ("commenters", "comment"),
         ]
 
-        for key, rel_type in relations:
+        for key, interaction_type in relations:
             for related_user in post.get(key, []):
                 if not related_user or related_user == username:
                     continue
 
                 update_graph_node(graph, related_user, full_name=related_user)
 
-                # If edge already exists, append interaction; otherwise create it
                 if graph.has_edge(username, related_user):
                     edge_data = graph.get_edge_data(username, related_user) or {}
                     interactions = edge_data.get("interactions", [])
-                    interactions.append({"type": rel_type, "post_id": post.get("id")})
+                    interactions.append({"type": interaction_type, "post_id": post.get("id")})
                     edge_data["interactions"] = interactions
                     edge_data["weight"] = edge_data.get("weight", 1) + 1
                     graph.add_edge(username, related_user, **edge_data)
                 else:
-                    graph.add_edge(username, related_user, interactions=[{"type": rel_type, "post_id": post.get("id")}], weight=1)
+                    graph.add_edge(
+                        username,
+                        related_user,
+                        interactions=[{"type": interaction_type, "post_id": post.get("id")}],
+                        weight=1,
+                    )
 
-                # Recurse
-                explore_users(related_user, api_keys, cache, cache_path, graph, explored,
-                              depth=depth + 1, max_depth=max_depth, posts_limit=posts_limit, graph_path=graph_path)
+                explore_users(
+                    related_user,
+                    api_keys,
+                    cache,
+                    cache_path,
+                    graph,
+                    explored,
+                    depth=depth + 1,
+                    max_depth=max_depth,
+                    posts_limit=posts_limit,
+                    graph_path=graph_path,
+                )
 
 def compute_suspicious_scores(cache, graph, main_user):
     for node in graph.nodes:
         if node == main_user:
             continue
         if graph.degree(node) != 1 or not graph.has_edge(main_user, node):
-            continue  # skip if not strictly isolated
+            continue
 
         profile = cache.get(node)
         if not profile or "latest_posts" not in profile:
@@ -111,10 +145,10 @@ def compute_suspicious_scores(cache, graph, main_user):
             total_interactions += post.get("likes", 0) + post.get("comments", 0)
 
         post_dates.sort()
-        posts_available = bool(post_dates)
+        has_posts = bool(post_dates)
 
-        temporal = temporal_entropy(post_dates) if posts_available else 0.0
-        bursts = burstiness(post_dates) if posts_available else 0.0
+        temporal = temporal_entropy(post_dates) if has_posts else 0.0
+        bursts = burstiness(post_dates) if has_posts else 0.0
         avg_interactions = total_interactions / len(posts) if posts else 0.0
 
         name_ent = entropy(profile.get("full_name", ""))
@@ -127,7 +161,7 @@ def compute_suspicious_scores(cache, graph, main_user):
         username_score = 1 / (1 + username_ent)
         name_score = 1 / (1 + name_ent)
 
-        if posts_available:
+        if has_posts:
             temporal_score_adj = 1 / (1 + (temporal / 2))
             temporal_fuzzy = transform_burstiness(temporal_score_adj)
             burst_fuzzy = transform_burstiness(bursts)
@@ -152,8 +186,9 @@ def compute_suspicious_scores(cache, graph, main_user):
             "final_score": final
         }
 
-def generate_html(graph, explored_users, main_user, cache, suspicius_calc=False, followers_ratio=False):
-    if suspicius_calc:
+
+def generate_html(graph, explored_users, main_user, cache, suspicious_calc=False):
+    if suspicious_calc:
         allowed_nodes = {main_user} | set(graph.neighbors(main_user))
         subgraph = graph.subgraph(allowed_nodes).copy()
     else:
@@ -170,8 +205,8 @@ def generate_html(graph, explored_users, main_user, cache, suspicius_calc=False,
         score = cache.get(node, {}).get("suspicious_score", {}).get("final_score", 0)
         if node == main_user:
             color_map[node] = "#6699cc"
-        elif suspicius_calc and score >= 0.6:
-            color_map[node] = "#FF0000" 
+        elif suspicious_calc and score >= 0.6:
+            color_map[node] = "#FF0000"
         elif node != main_user and subgraph.degree(node) == 1:
             color_map[node] = "#ffb6c1"
         elif main_user in list(subgraph.neighbors(node)):
@@ -192,12 +227,10 @@ def generate_html(graph, explored_users, main_user, cache, suspicius_calc=False,
                             bbox=dict(boxstyle="round", fc="none", ec="none"), ax=ax)
     ax.set_axis_off()
 
-    # Save as SVG and create a minimal HTML wrapper instead of using mpld3
     svg_file = f"graph_{main_user}.svg"
     html_file = f"graph_{main_user}.html"
     try:
         fig.savefig(svg_file, format="svg", bbox_inches="tight")
-        # Write a simple HTML file that embeds the SVG file
         with open(html_file, "w", encoding="utf-8") as f:
             f.write(f"""<!doctype html>
 <html lang=\"en\"> 
@@ -216,7 +249,6 @@ def generate_html(graph, explored_users, main_user, cache, suspicius_calc=False,
     finally:
         plt.close(fig)
 
-    # Open the generated HTML in the default browser
     try:
         webbrowser.open_new_tab(html_file)
     except Exception:

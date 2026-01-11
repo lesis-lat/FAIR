@@ -1,5 +1,6 @@
-import os
 import json
+import os
+
 import networkx as nx
 
 
@@ -18,72 +19,57 @@ def save_cache(path, data):
         json.dump(data, file, indent=4)
 
 
-def save_graph(path, graph: nx.Graph):
-    """Serialize a NetworkX graph (directed or undirected) to a JSON file.
+def _coerce_json_attributes(attributes):
+    try:
+        json.dumps(attributes)
+        return attributes
+    except TypeError:
+        return {key: str(value) for key, value in attributes.items()}
 
-    Format:
-    {
-        "directed": true|false,
-        "nodes": [{"id": node_id, "attributes": { ... }}, ...],
-        "edges": [{"source": u, "target": v, "attributes": { ... }}, ...]
-    }
-    """
-    data = {
+
+def save_graph(path, graph: nx.Graph):
+    payload = {
         "directed": bool(graph.is_directed()),
         "nodes": [],
-        "edges": []
+        "edges": [],
     }
 
-    for n, attrs in graph.nodes(data=True):
-        try:
-            # ensure attributes are JSON serializable
-            json.dumps(attrs)
-            node_attrs = attrs
-        except Exception:
-            # fallback: coerce to string for problematic attributes
-            node_attrs = {k: str(v) for k, v in attrs.items()}
+    for node_id, attributes in graph.nodes(data=True):
+        payload["nodes"].append(
+            {"id": node_id, "attributes": _coerce_json_attributes(attributes)}
+        )
 
-        data["nodes"].append({"id": n, "attributes": node_attrs})
+    for source, target, attributes in graph.edges(data=True):
+        payload["edges"].append(
+            {"source": source, "target": target, "attributes": _coerce_json_attributes(attributes)}
+        )
 
-    for u, v, attrs in graph.edges(data=True):
-        try:
-            json.dumps(attrs)
-            edge_attrs = attrs
-        except Exception:
-            edge_attrs = {k: str(v) for k, v in attrs.items()}
-
-        data["edges"].append({"source": u, "target": v, "attributes": edge_attrs})
-
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=4)
+    with open(path, "w", encoding="utf-8") as file:
+        json.dump(payload, file, indent=4)
 
 
 def load_graph(path):
-    """Load a graph previously saved with save_graph. Returns a NetworkX Graph/DiGraph.
-
-    If the file does not exist or is invalid, returns an empty DiGraph by default.
-    """
     if not os.path.exists(path):
         return nx.DiGraph()
 
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, "r", encoding="utf-8") as file:
         try:
-            payload = json.load(f)
+            payload = json.load(file)
         except json.JSONDecodeError:
             return nx.DiGraph()
 
-    directed = payload.get("directed", True)
-    G = nx.DiGraph() if directed else nx.Graph()
+    is_directed = payload.get("directed", True)
+    graph = nx.DiGraph() if is_directed else nx.Graph()
 
     for node in payload.get("nodes", []):
-        nid = node.get("id")
-        attrs = node.get("attributes", {})
-        G.add_node(nid, **attrs)
+        node_id = node.get("id")
+        attributes = node.get("attributes", {})
+        graph.add_node(node_id, **attributes)
 
     for edge in payload.get("edges", []):
-        u = edge.get("source")
-        v = edge.get("target")
-        attrs = edge.get("attributes", {})
-        G.add_edge(u, v, **attrs)
+        source = edge.get("source")
+        target = edge.get("target")
+        attributes = edge.get("attributes", {})
+        graph.add_edge(source, target, **attributes)
 
-    return G
+    return graph

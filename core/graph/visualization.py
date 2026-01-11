@@ -1,13 +1,13 @@
+import json
 import webbrowser
-from core.cache import load_graph, load_cache
+
+from core.cache import load_cache, load_graph
 
 
-def generate_html(social_graph, explored_users, main_user, suspicius_calc=False):
-    """Generate interactive HTML visualization using D3.js from an in-memory social_graph object."""
+def generate_html(social_graph, main_user, suspicious_calc=False):
     graph = social_graph.graph
     cache = social_graph.cache
 
-    # Get both connected and isolated nodes
     all_nodes = set(graph.nodes())
     connected_nodes = set()
     for u, v in graph.edges():
@@ -15,37 +15,40 @@ def generate_html(social_graph, explored_users, main_user, suspicius_calc=False)
         connected_nodes.add(v)
     isolated_nodes = all_nodes - connected_nodes
 
-    # Prepare base subgraph
-    if suspicius_calc:
+    if suspicious_calc:
         allowed_nodes = {main_user} | set(graph.neighbors(main_user))
         subgraph = graph.subgraph(allowed_nodes).copy()
     else:
         subgraph = graph.copy()
-        
-    # Prepare nodes and links data
+
     nodes_data = []
     for node in subgraph.nodes():
         score = cache.get(node, {}).get("suspicious_score", {}).get("final_score", 0)
         is_isolated = node in isolated_nodes
-        
-        # Define node color
-        color = "#6699cc" if node == main_user else \
-                "#FF0000" if suspicius_calc and score >= 0.6 else \
-                "#ffb6c1" if is_isolated else \
-                "#75c793" if main_user in list(subgraph.predecessors(node)) or main_user in list(subgraph.successors(node)) else \
-                "#dddddd"
-        
-        # Get interaction directions
-        in_neighbors = list(subgraph.predecessors(node))
-        out_neighbors = list(subgraph.successors(node))
+
+        incoming_neighbors = set(subgraph.predecessors(node))
+        outgoing_neighbors = set(subgraph.successors(node))
+        has_main_connection = main_user in incoming_neighbors or main_user in outgoing_neighbors
+
+        if node == main_user:
+            color = "#6699cc"
+        elif suspicious_calc and score >= 0.6:
+            color = "#FF0000"
+        elif is_isolated:
+            color = "#ffb6c1"
+        elif has_main_connection:
+            color = "#75c793"
+        else:
+            color = "#dddddd"
+
         interaction_type = "none"
-        if len(in_neighbors) > 0 and len(out_neighbors) > 0:
+        if incoming_neighbors and outgoing_neighbors:
             interaction_type = "bidirectional"
-        elif len(in_neighbors) > 0:
+        elif incoming_neighbors:
             interaction_type = "incoming"
-        elif len(out_neighbors) > 0:
+        elif outgoing_neighbors:
             interaction_type = "outgoing"
-                
+
         nodes_data.append({
             "id": node,
             "label": f"{node}\n({subgraph.nodes[node].get('full_name', '')})",
@@ -58,29 +61,30 @@ def generate_html(social_graph, explored_users, main_user, suspicius_calc=False)
         })
 
     links_data = []
-    for u, v, data in subgraph.edges(data=True):
-        if 'interactions' in data and data['interactions']:
-            interaction_types = [i['type'] for i in data['interactions']]
-            most_common = max(set(interaction_types), key=interaction_types.count)
-            
+    for source, target, attributes in subgraph.edges(data=True):
+        if "interactions" in attributes and attributes["interactions"]:
+            interaction_types = [interaction["type"] for interaction in attributes["interactions"]]
+            dominant_interaction = max(set(interaction_types), key=interaction_types.count)
+
             edge_color = {
-                'comment': '#2ecc71',
-                'mention': '#e74c3c',
-                'tag': '#3498db'
-            }.get(most_common, 'gray')
-            
-            # Ensure we're using node objects instead of just IDs
-            source_node = next((n for n in nodes_data if n["id"] == u), None)
-            target_node = next((n for n in nodes_data if n["id"] == v), None)
-            
+                "comment": "#2ecc71",
+                "mention": "#e74c3c",
+                "tag": "#3498db",
+            }.get(dominant_interaction, "gray")
+
+            source_node = next((node for node in nodes_data if node["id"] == source), None)
+            target_node = next((node for node in nodes_data if node["id"] == target), None)
+
             if source_node and target_node:
-                links_data.append({
-                    "source": u,
-                    "target": v,
-                    "color": edge_color,
-                    "width": min(data.get('weight', 1), 5),
-                    "type": most_common
-                })
+                links_data.append(
+                    {
+                        "source": source,
+                        "target": target,
+                        "color": edge_color,
+                        "width": min(attributes.get("weight", 1), 5),
+                        "type": dominant_interaction,
+                    }
+                )
 
     html_content = f"""<!DOCTYPE html>
 <html lang="en">
@@ -195,11 +199,10 @@ def generate_html(social_graph, explored_users, main_user, suspicius_calc=False)
     </div>
     <script>
         let data = {{
-            nodes: {str(nodes_data).replace("'", '"')},
-            links: {str(links_data).replace("'", '"')}
+            nodes: {json.dumps(nodes_data, ensure_ascii=False)},
+            links: {json.dumps(links_data, ensure_ascii=False)}
         }};
 
-        // Convert links source/target from id to node object references
         data.links.forEach(link => {{
             link.source = data.nodes.find(node => node.id === link.source);
             link.target = data.nodes.find(node => node.id === link.target);
@@ -208,7 +211,6 @@ def generate_html(social_graph, explored_users, main_user, suspicius_calc=False)
         const width = document.getElementById('graph').clientWidth;
         const height = document.getElementById('graph').clientHeight;
 
-        // Create zoom behavior
         const zoom = d3.zoom()
             .scaleExtent([0.1, 4])
             .on("zoom", zoomed);
@@ -219,10 +221,8 @@ def generate_html(social_graph, explored_users, main_user, suspicius_calc=False)
             .attr("height", height)
             .call(zoom);
 
-        // Create a container for the graph that will be transformed by zoom
         const container = svg.append("g");
 
-        // Create arrow markers for directed edges
         svg.append("defs").selectAll("marker")
             .data(["arrow"])
             .join("marker")
@@ -237,7 +237,6 @@ def generate_html(social_graph, explored_users, main_user, suspicius_calc=False)
             .attr("d", "M0,-5L10,0L0,5")
             .attr("class", "arrow-head");
 
-        // Create tooltip
         const tooltip = d3.select("body").append("div")
             .attr("class", "tooltip")
             .style("opacity", 0);
@@ -252,7 +251,6 @@ def generate_html(social_graph, explored_users, main_user, suspicius_calc=False)
             .force("center", d3.forceCenter(width / 2, height / 2))
             .force("collide", d3.forceCollide().radius(d => d.size * 2));
 
-        // Create links with arrows
         const links = container.append("g")
             .attr("class", "links")
             .selectAll("line")
@@ -263,7 +261,6 @@ def generate_html(social_graph, explored_users, main_user, suspicius_calc=False)
             .attr("marker-end", "url(#arrow)")
             .attr("class", "link");
 
-        // Add interaction type labels to links
         const linkLabels = container.append("g")
             .attr("class", "link-labels")
             .selectAll("text")
@@ -277,7 +274,6 @@ def generate_html(social_graph, explored_users, main_user, suspicius_calc=False)
             .style("fill", d => d.color)
             .style("text-shadow", "1px 1px 2px white");
 
-        // Create nodes
         const nodes = container.append("g")
             .selectAll("g")
             .data(data.nodes)
@@ -303,25 +299,20 @@ def generate_html(social_graph, explored_users, main_user, suspicius_calc=False)
             .style("fill", "#000")
             .style("text-shadow", "0 0 3px white, 0 0 3px white, 0 0 3px white, 0 0 3px white");
 
-        // Update simulation on tick
         simulation.on("tick", () => {{
-            // Update link positions
             links
                 .attr("x1", d => d.source.x)
                 .attr("y1", d => d.source.y)
                 .attr("x2", d => d.target.x)
                 .attr("y2", d => d.target.y);
 
-            // Update link label positions
             linkLabels
                 .attr("x", d => (d.source.x + d.target.x) / 2)
                 .attr("y", d => (d.source.y + d.target.y) / 2);
 
-            // Update node positions
             nodes.attr("transform", d => `translate(${{d.x}},${{d.y}})`);
         }});
 
-        // Zoom functions
         function zoomed(event) {{
             container.attr("transform", event.transform);
         }}
@@ -338,7 +329,6 @@ def generate_html(social_graph, explored_users, main_user, suspicius_calc=False)
             svg.transition().duration(500).call(zoom.transform, d3.zoomIdentity);
         }}
 
-        // Node filtering
         function filterNodes(type) {{
             const t = d3.transition().duration(300);
 
@@ -354,7 +344,6 @@ def generate_html(social_graph, explored_users, main_user, suspicius_calc=False)
             }}
         }}
 
-        // Tooltip functions
         function showTooltip(event, d) {{
             const direction = d.interaction_type !== "none" 
                 ? `<br>Interaction: ${{d.interaction_type}}`
@@ -379,7 +368,6 @@ def generate_html(social_graph, explored_users, main_user, suspicius_calc=False)
                 .style("opacity", 0);
         }}
 
-        // Drag functions
         function dragstarted(event) {{
             if (!event.active) simulation.alphaTarget(0.3).restart();
             event.subject.fx = event.subject.x;
@@ -401,28 +389,20 @@ def generate_html(social_graph, explored_users, main_user, suspicius_calc=False)
 </html>
 """
 
-    # Save HTML file
     html_file = f"graph_{main_user}.html"
     with open(html_file, "w", encoding="utf-8") as f:
         f.write(html_content)
 
-    # Open in browser
     try:
         webbrowser.open_new_tab(html_file)
     except Exception:
         pass
 
 
-def generate_html_from_files(graph_path, cache_path, main_user, suspicius_calc=False):
-    """Load graph and cache from disk and generate the same HTML visualization.
-
-    This is a convenience to build the HTML using the persisted graph file (graph.json)
-    and the cache file (cache.json) without running the crawler again.
-    """
+def generate_html_from_files(graph_path, cache_path, main_user, suspicious_calc=False):
     graph = load_graph(graph_path)
     cache = load_cache(cache_path)
 
-    # reuse the same code path by creating a tiny adapter object
     class _Adapter:
         def __init__(self, graph, cache):
             self.graph = graph
@@ -430,6 +410,4 @@ def generate_html_from_files(graph_path, cache_path, main_user, suspicius_calc=F
 
     social_graph = _Adapter(graph, cache)
 
-    # We don't have the explored_users set here; build a set of nodes seen in cache
-    explored_users = set(cache.keys())
-    generate_html(social_graph, explored_users, main_user, suspicius_calc=suspicius_calc)
+    generate_html(social_graph, main_user, suspicious_calc=suspicious_calc)

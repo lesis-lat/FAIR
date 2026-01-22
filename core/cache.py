@@ -59,7 +59,9 @@ def load_graph(path):
             return nx.DiGraph()
 
     is_directed = payload.get("directed", True)
-    graph = nx.DiGraph() if is_directed else nx.Graph()
+    graph = nx.DiGraph()
+    if not is_directed:
+        graph = nx.Graph()
 
     for node in payload.get("nodes", []):
         node_id = node.get("id")

@@ -10,26 +10,36 @@ def generate_html(social_graph, main_user, suspicious_calc=False, show_only_main
 
     all_nodes = set(graph.nodes())
     connected_nodes = set()
-    for u, v in graph.edges():
-        connected_nodes.add(u)
-        connected_nodes.add(v)
+    for source_node_id, target_node_id in graph.edges():
+        connected_nodes.add(source_node_id)
+        connected_nodes.add(target_node_id)
     isolated_nodes = all_nodes - connected_nodes
 
+    subgraph = graph.copy()
     if show_only_main_relations:
+        allowed_nodes = {main_user}
         if graph.is_directed():
-            predecessors = set(graph.predecessors(main_user)) if main_user in graph else set()
-            successors = set(graph.successors(main_user)) if main_user in graph else set()
+            predecessors = set()
+            successors = set()
+            if main_user in graph:
+                predecessors = set(graph.predecessors(main_user))
+                successors = set(graph.successors(main_user))
             allowed_nodes = {main_user} | predecessors | successors
-        else:
-            allowed_nodes = {main_user} | set(graph.neighbors(main_user)) if main_user in graph else {main_user}
-
-        allowed_nodes = [n for n in allowed_nodes if n in graph]
+        if not graph.is_directed():
+            if main_user in graph:
+                allowed_nodes = {main_user} | set(graph.neighbors(main_user))
+            if main_user not in graph:
+                allowed_nodes = {main_user}
+        filtered_nodes = []
+        for node in allowed_nodes:
+            if node not in graph:
+                continue
+            filtered_nodes.append(node)
+        allowed_nodes = filtered_nodes
         subgraph = graph.subgraph(allowed_nodes).copy()
-    elif suspicious_calc:
+    if not show_only_main_relations and suspicious_calc:
         allowed_nodes = {main_user} | set(graph.neighbors(main_user))
         subgraph = graph.subgraph(allowed_nodes).copy()
-    else:
-        subgraph = graph.copy()
 
     nodes_data = []
     for node in subgraph.nodes():
@@ -40,23 +50,22 @@ def generate_html(social_graph, main_user, suspicious_calc=False, show_only_main
         outgoing_neighbors = set(subgraph.successors(node))
         has_main_connection = main_user in incoming_neighbors or main_user in outgoing_neighbors
 
+        color = "#dddddd"
         if node == main_user:
             color = "#6699cc"
-        elif suspicious_calc and score >= 0.6:
+        if color == "#dddddd" and suspicious_calc and score >= 0.6:
             color = "#FF0000"
-        elif is_isolated:
+        if color == "#dddddd" and is_isolated:
             color = "#ffb6c1"
-        elif has_main_connection:
+        if color == "#dddddd" and has_main_connection:
             color = "#75c793"
-        else:
-            color = "#dddddd"
 
         interaction_type = "none"
         if incoming_neighbors and outgoing_neighbors:
             interaction_type = "bidirectional"
-        elif incoming_neighbors:
+        if interaction_type == "none" and incoming_neighbors:
             interaction_type = "incoming"
-        elif outgoing_neighbors:
+        if interaction_type == "none" and outgoing_neighbors:
             interaction_type = "outgoing"
 
         nodes_data.append({
@@ -82,8 +91,13 @@ def generate_html(social_graph, main_user, suspicious_calc=False, show_only_main
                 "tag": "#3498db",
             }.get(dominant_interaction, "gray")
 
-            source_node = next((node for node in nodes_data if node["id"] == source), None)
-            target_node = next((node for node in nodes_data if node["id"] == target), None)
+            source_node = None
+            target_node = None
+            for node_data in nodes_data:
+                if node_data["id"] == source:
+                    source_node = node_data
+                if node_data["id"] == target:
+                    target_node = node_data
 
             if source_node and target_node:
                 links_data.append(
@@ -213,9 +227,9 @@ def generate_html(social_graph, main_user, suspicious_calc=False, show_only_main
             links: {json.dumps(links_data, ensure_ascii=False)}
         }};
 
-        data.links.forEach(link => {{
-            link.source = data.nodes.find(node => node.id === link.source);
-            link.target = data.nodes.find(node => node.id === link.target);
+        data.links.forEach(linkData => {{
+            linkData.source = data.nodes.find(nodeData => nodeData.id === linkData.source);
+            linkData.target = data.nodes.find(nodeData => nodeData.id === linkData.target);
         }});
 
         const width = document.getElementById('graph').clientWidth;
@@ -236,7 +250,7 @@ def generate_html(social_graph, main_user, suspicious_calc=False, show_only_main
         svg.append("defs").selectAll("marker")
             .data(["arrow"])
             .join("marker")
-            .attr("id", d => d)
+            .attr("id", markerId => markerId)
             .attr("viewBox", "0 -5 10 10")
             .attr("refX", 20)
             .attr("refY", 0)
@@ -253,21 +267,21 @@ def generate_html(social_graph, main_user, suspicious_calc=False, show_only_main
 
         const simulation = d3.forceSimulation(data.nodes)
             .force("link", d3.forceLink(data.links)
-                .id(d => d.id)
+                .id(nodeData => nodeData.id)
                 .distance(100))
             .force("charge", d3.forceManyBody()
                 .strength(-1000)
                 .distanceMax(500))
             .force("center", d3.forceCenter(width / 2, height / 2))
-            .force("collide", d3.forceCollide().radius(d => d.size * 2));
+            .force("collide", d3.forceCollide().radius(nodeData => nodeData.size * 2));
 
         const links = container.append("g")
             .attr("class", "links")
             .selectAll("line")
             .data(data.links)
             .join("line")
-            .attr("stroke", d => d.color)
-            .attr("stroke-width", d => d.width)
+            .attr("stroke", linkData => linkData.color)
+            .attr("stroke-width", linkData => linkData.width)
             .attr("marker-end", "url(#arrow)")
             .attr("class", "link");
 
@@ -277,11 +291,11 @@ def generate_html(social_graph, main_user, suspicious_calc=False, show_only_main
             .data(data.links)
             .join("text")
             .attr("class", "link-label")
-            .text(d => d.type)
+            .text(linkData => linkData.type)
             .attr("text-anchor", "middle")
             .attr("dy", -5)
             .style("font-size", "8px")
-            .style("fill", d => d.color)
+            .style("fill", linkData => linkData.color)
             .style("text-shadow", "1px 1px 2px white");
 
         const nodes = container.append("g")
@@ -294,16 +308,16 @@ def generate_html(social_graph, main_user, suspicious_calc=False, show_only_main
                 .on("end", dragended));
 
         nodes.append("circle")
-            .attr("r", d => d.size)
-            .attr("fill", d => d.color)
+            .attr("r", nodeData => nodeData.size)
+            .attr("fill", nodeData => nodeData.color)
             .on("mouseover", showTooltip)
             .on("mouseout", hideTooltip);
 
         nodes.append("text")
-            .text(d => d.label)
+            .text(nodeData => nodeData.label)
             .attr("text-anchor", "middle")
             .attr("dominant-baseline", "middle")
-            .attr("y", d => d.size + 10)
+            .attr("y", nodeData => nodeData.size + 10)
             .style("font-size", "10px")
             .style("pointer-events", "none")
             .style("fill", "#000")
@@ -311,16 +325,16 @@ def generate_html(social_graph, main_user, suspicious_calc=False, show_only_main
 
         simulation.on("tick", () => {{
             links
-                .attr("x1", d => d.source.x)
-                .attr("y1", d => d.source.y)
-                .attr("x2", d => d.target.x)
-                .attr("y2", d => d.target.y);
+                .attr("x1", linkData => linkData.source.x)
+                .attr("y1", linkData => linkData.source.y)
+                .attr("x2", linkData => linkData.target.x)
+                .attr("y2", linkData => linkData.target.y);
 
             linkLabels
-                .attr("x", d => (d.source.x + d.target.x) / 2)
-                .attr("y", d => (d.source.y + d.target.y) / 2);
+                .attr("x", linkData => (linkData.source.x + linkData.target.x) / 2)
+                .attr("y", linkData => (linkData.source.y + linkData.target.y) / 2);
 
-            nodes.attr("transform", d => `translate(${{d.x}},${{d.y}})`);
+            nodes.attr("transform", nodeData => `translate(${{nodeData.x}},${{nodeData.y}})`);
         }});
 
         function zoomed(event) {{
@@ -340,32 +354,47 @@ def generate_html(social_graph, main_user, suspicious_calc=False, show_only_main
         }}
 
         function filterNodes(type) {{
-            const t = d3.transition().duration(300);
+            const transition = d3.transition().duration(300);
 
             if (type === 'all') {{
-                nodes.transition(t).style("opacity", 1);
-                links.transition(t).style("opacity", 1);
-            }} else if (type === 'connected') {{
-                nodes.transition(t).style("opacity", d => d.is_isolated ? 0.1 : 1);
-                links.transition(t).style("opacity", 1);
-            }} else if (type === 'isolated') {{
-                nodes.transition(t).style("opacity", d => d.is_isolated ? 1 : 0.1);
-                links.transition(t).style("opacity", 0.1);
+                nodes.transition(transition).style("opacity", 1);
+                links.transition(transition).style("opacity", 1);
+                return;
+            }}
+            if (type === 'connected') {{
+                nodes.transition(transition).style("opacity", nodeData => {{
+                    if (nodeData.is_isolated) {{
+                        return 0.1;
+                    }}
+                    return 1;
+                }});
+                links.transition(transition).style("opacity", 1);
+                return;
+            }}
+            if (type === 'isolated') {{
+                nodes.transition(transition).style("opacity", nodeData => {{
+                    if (nodeData.is_isolated) {{
+                        return 1;
+                    }}
+                    return 0.1;
+                }});
+                links.transition(transition).style("opacity", 0.1);
             }}
         }}
 
-        function showTooltip(event, d) {{
-            const direction = d.interaction_type !== "none" 
-                ? `<br>Interaction: ${{d.interaction_type}}`
-                : "";
+        function showTooltip(event, nodeData) {{
+            let direction = "";
+            if (nodeData.interaction_type !== "none") {{
+                direction = `<br>Interaction: ${{nodeData.interaction_type}}`;
+            }}
 
             tooltip.transition()
                 .duration(200)
                 .style("opacity", .9);
             tooltip.html(
-                `<strong>${{d.label}}</strong><br>` +
-                `Followers: ${{d.followers}}<br>` +
-                `Following: ${{d.following}}` +
+                `<strong>${{nodeData.label}}</strong><br>` +
+                `Followers: ${{nodeData.followers}}<br>` +
+                `Following: ${{nodeData.following}}` +
                 direction
             )
                 .style("left", (event.pageX + 10) + "px")

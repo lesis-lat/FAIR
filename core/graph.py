@@ -17,8 +17,8 @@ def update_graph_node(graph, username, full_name=None, followers=0, following=0)
             followers=followers,
             following=following,
         )
-    else:
-        graph.nodes[username]["count"] = graph.nodes[username].get("count", 1) + 1
+        return
+    graph.nodes[username]["count"] = graph.nodes[username].get("count", 1) + 1
 
 
 def explore_users(
@@ -80,8 +80,8 @@ def explore_users(
             ("commenters", "comment"),
         ]
 
-        for key, interaction_type in relations:
-            for related_user in post.get(key, []):
+        for relation_key, interaction_type in relations:
+            for related_user in post.get(relation_key, []):
                 if not related_user or related_user == username:
                     continue
 
@@ -94,7 +94,7 @@ def explore_users(
                     edge_data["interactions"] = interactions
                     edge_data["weight"] = edge_data.get("weight", 1) + 1
                     graph.add_edge(username, related_user, **edge_data)
-                else:
+                if not graph.has_edge(username, related_user):
                     graph.add_edge(
                         username,
                         related_user,
@@ -132,67 +132,82 @@ def compute_suspicious_scores(cache, graph, main_user):
 
         for post in posts:
             date_val = post.get("date")
-            dt = None
+            parsed_datetime = None
             try:
-                dt = datetime.strptime(date_val, "%Y-%m-%dT%H:%M:%S.%fZ")
+                parsed_datetime = datetime.strptime(date_val, "%Y-%m-%dT%H:%M:%S.%fZ")
             except Exception:
                 try:
-                    dt = datetime.fromtimestamp(float(date_val))
+                    parsed_datetime = datetime.fromtimestamp(float(date_val))
                 except Exception:
                     continue
-            if dt:
-                post_dates.append(dt)
+            if parsed_datetime:
+                post_dates.append(parsed_datetime)
             total_interactions += post.get("likes", 0) + post.get("comments", 0)
 
         post_dates.sort()
         has_posts = bool(post_dates)
 
-        temporal = temporal_entropy(post_dates) if has_posts else 0.0
-        bursts = burstiness(post_dates) if has_posts else 0.0
-        avg_interactions = total_interactions / len(posts) if posts else 0.0
+        temporal = 0.0
+        burstiness_score = 0.0
+        avg_interactions = 0.0
+        if has_posts:
+            temporal = temporal_entropy(post_dates)
+            burstiness_score = burstiness(post_dates)
+        if posts:
+            avg_interactions = total_interactions / len(posts)
 
-        name_ent = entropy(profile.get("full_name", ""))
-        username_ent = entropy(profile.get("username", ""))
+        name_entropy = entropy(profile.get("full_name", ""))
+        username_entropy = entropy(profile.get("username", ""))
         followers = profile.get("followers", 0)
-        engagement_ratio = avg_interactions / followers if followers > 0 else 0.0
+        engagement_ratio = 0.0
+        if followers > 0:
+            engagement_ratio = avg_interactions / followers
         threshold = 1 / 200
-        engagement_score = engagement_ratio / threshold if engagement_ratio < threshold else 1.0
+        engagement_score = 1.0
+        if engagement_ratio < threshold:
+            engagement_score = engagement_ratio / threshold
 
-        username_score = 1 / (1 + username_ent)
-        name_score = 1 / (1 + name_ent)
+        username_score = 1 / (1 + username_entropy)
+        name_score = 1 / (1 + name_entropy)
 
+        final_score = 0.0
         if has_posts:
             temporal_score_adj = 1 / (1 + (temporal / 2))
             temporal_fuzzy = transform_burstiness(temporal_score_adj)
-            burst_fuzzy = transform_burstiness(bursts)
+            burst_fuzzy = transform_burstiness(burstiness_score)
             engage_fuzzy = transform_burstiness(engagement_score)
             uname_fuzzy = transform_burstiness(username_score)
             name_fuzzy = transform_burstiness(name_score)
 
-            final = 0.35 * burst_fuzzy + 0.25 * temporal_fuzzy + 0.2 * engage_fuzzy + 0.15 * uname_fuzzy + 0.05 * name_fuzzy
-        else:
+            final_score = 0.35 * burst_fuzzy + 0.25 * temporal_fuzzy + 0.2 * engage_fuzzy + 0.15 * uname_fuzzy + 0.05 * name_fuzzy
+        if not has_posts:
             engage_fuzzy = transform_burstiness(engagement_score)
             uname_fuzzy = transform_burstiness(username_score)
             name_fuzzy = transform_burstiness(name_score)
 
-            final = 0.4 * engage_fuzzy + 0.35 * uname_fuzzy + 0.25 * name_fuzzy
+            final_score = 0.4 * engage_fuzzy + 0.35 * uname_fuzzy + 0.25 * name_fuzzy
 
         profile["suspicious_score"] = {
             "temporal_entropy": temporal,
-            "name_entropy": name_ent,
-            "username_entropy": username_ent,
-            "burstiness": bursts,
+            "name_entropy": name_entropy,
+            "username_entropy": username_entropy,
+            "burstiness": burstiness_score,
             "engagement_score": engagement_score,
-            "final_score": final
+            "final_score": final_score
         }
 
 
 def generate_html(graph, explored_users, main_user, cache, suspicious_calc=False):
+    subgraph = graph.copy()
     if suspicious_calc:
         allowed_nodes = {main_user} | set(graph.neighbors(main_user))
         subgraph = graph.subgraph(allowed_nodes).copy()
-    else:
-        isolated = [node for node in graph.nodes if node not in explored_users]
+    if not suspicious_calc:
+        isolated = []
+        for node in graph.nodes:
+            if node in explored_users:
+                continue
+            isolated.append(node)
         subgraph = graph.copy()
         subgraph.remove_nodes_from(isolated)
 
@@ -203,16 +218,15 @@ def generate_html(graph, explored_users, main_user, cache, suspicious_calc=False
     color_map = {}
     for node in subgraph.nodes():
         score = cache.get(node, {}).get("suspicious_score", {}).get("final_score", 0)
+        color_map[node] = "#dddddd"
         if node == main_user:
             color_map[node] = "#6699cc"
-        elif suspicious_calc and score >= 0.6:
+        if color_map[node] == "#dddddd" and suspicious_calc and score >= 0.6:
             color_map[node] = "#FF0000"
-        elif node != main_user and subgraph.degree(node) == 1:
+        if color_map[node] == "#dddddd" and node != main_user and subgraph.degree(node) == 1:
             color_map[node] = "#ffb6c1"
-        elif main_user in list(subgraph.neighbors(node)):
+        if color_map[node] == "#dddddd" and main_user in list(subgraph.neighbors(node)):
             color_map[node] = "#75c793"
-        else:
-            color_map[node] = "#dddddd"
 
     labels = {node: node for node in subgraph.nodes()}
     node_sizes = [max(100, subgraph.nodes[node]['count'] * 100) for node in subgraph.nodes()]

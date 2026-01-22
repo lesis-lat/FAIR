@@ -26,10 +26,9 @@ def main():
     print("[INFO] API keys and cache loaded successfully.")
     print(f"Analyzing user: {username} (depth={max_depth}, posts={posts_limit})")
 
+    cache = load_cache(cache_path)
     if args.no_cache:
         cache = {}
-    else:
-        cache = load_cache(cache_path)
 
     api_keys = load_api_keys("keys.env")
     graph = nx.DiGraph()

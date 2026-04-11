@@ -1,4 +1,0 @@
-apify-client
-matplotlib
-networkx
-numpy

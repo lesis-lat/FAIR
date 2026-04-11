@@ -1,63 +1,61 @@
-# FAIR - Fake Account Interaction Recognition
+# FAIR - Fake Account Interaction Recognition (Perl)
 
-FAIR is a Python tool to detect potentially fake Instagram profiles based on interaction graphs and heuristic analysis.
-
-![](fake_profile_detection_steps.gif) 
+FAIR is a Perl tool to detect potentially fake Instagram profiles based on interaction graphs and heuristic analysis.
 
 ## Features
 
-* Uses Apify API to scrape public Instagram data
-* Builds interaction graphs using NetworkX
-* Analyzes user profiles using entropy, burstiness, and engagement metrics
-* Visualizes results with an interactive HTML graph using mpld3
-* Supports recursive profile exploration
+- Uses Apify API to scrape public Instagram data
+- Builds directed interaction graphs (mentions, tags, comments)
+- Computes suspiciousness metrics (entropy, temporal entropy, burstiness, engagement)
+- Generates an interactive HTML graph using D3.js
+- Supports recursive profile exploration
 
-## Installation
+## Requirements
 
-### Requirements
+- Perl 5.30+
+- `keys.env` with one or more Apify API tokens (one per line or `KEY=value` format)
 
-Python 3.8+
-
-Install dependencies:
-
-```bash
-pip install -r requirements.txt
-```
+Install dependencies with your preferred CPAN workflow (for example `cpanm --installdeps .`).
 
 ## Usage
 
-Run the analysis with:
+Run analysis:
 
 ```bash
-python main.py --username example_user --depth 2 --posts 3
+perl fair.pl --username example_user --depth 2 --posts 3
 ```
 
-### Options
+Options:
 
-* `--username`: Instagram handle to analyze (required)
-* `--depth`: Number of recursive levels to follow (default: 2)
-* `--posts`: Number of posts to fetch per user (default: 3)
-* `--no-cache`: Ignore previously saved data and re-fetch everything
-* `--suspicious-calc`: Calculate suspicious scores for isolated profiles (i.e., nodes connected only to the main user) and highlight those with high scores in red
+- `--username`: Instagram handle to analyze (required)
+- `--depth`: Number of recursive levels to follow (default: `2`)
+- `--posts`: Number of posts to fetch per user (default: `3`)
+- `--no-cache`: Ignore `cache.json` and re-fetch data
+- `--suspicious-calc`: Compute suspicious scores and highlight suspicious nodes
+
+## Demo
+
+Generate a sample graph without API calls:
+
+```bash
+perl scripts/demo_graph.pl
+```
 
 ## Project Structure
 
-```
+```text
 .
-├── core/
-│   ├── __init__.py
-│   ├── api.py
-│   ├── cache.py
-│   ├── metrics.py
-├── main.py
-├── requirements.txt
-├── README.md
+├── lib/FAIR/
+│   ├── API.pm
+│   ├── Cache.pm
+│   ├── Graph.pm
+│   ├── Metrics.pm
+│   └── Visualization.pm
+├── fair.pl
+├── scripts/demo_graph.pl
+├── cpanfile
+└── README.md
 ```
-
-## Notes
-
-* You must create a `keys.env` file containing your Apify API keys.
-* Only public Instagram profiles can be analyzed.
 
 ## Disclaimer
 

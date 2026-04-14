@@ -29,6 +29,11 @@ our @EXPORT_OK = qw(
 
 our $VERSION = '0.1.0';
 my $DEFAULT_POSTS_LIMIT = 1 + 2;
+my $DEFAULT_PROFILE_TTL_HOURS = (2 * 2 * 2) * (2 + 1);
+my $DEFAULT_POSTS_TTL_HOURS = (2 * 2) * (2 + 1);
+my $THIRTY = (2 * 2 * 2) + (2 * 2 * 2) + (2 * 2 * 2) + (2 * 2 * 2) - (2 + 1);
+my $SIXTY = $THIRTY * 2;
+my $SECONDS_PER_HOUR = $SIXTY * $SIXTY;
 my $FIVE = 2 + 2 + 1;
 my $THREE = 2 + 1;
 my $SEVEN = 2 + 2 + 2 + 1;
@@ -77,6 +82,8 @@ sub explore_users {
     my $depth      = $args{depth}      // 1;
     my $max_depth  = $args{max_depth}  // 2;
     my $posts_limit = $args{posts_limit} // $DEFAULT_POSTS_LIMIT;
+    my $profile_ttl_hours = $args{profile_ttl_hours} // $DEFAULT_PROFILE_TTL_HOURS;
+    my $posts_ttl_hours = $args{posts_ttl_hours} // $DEFAULT_POSTS_TTL_HOURS;
     my $graph_path = $args{graph_path};
 
     if ($depth > $max_depth) {
@@ -88,11 +95,11 @@ sub explore_users {
     $explored -> {$username} = 1;
 
     my $profile_data = $cache -> {$username};
-    if ($profile_data && ($profile_data -> {account_type} // q{}) eq 'Private') {
-        return;
-    }
-
-    my $needs_fetch = (!$profile_data || !exists $profile_data -> {latest_posts});
+    my $needs_fetch = _needs_profile_fetch(
+        $profile_data,
+        $profile_ttl_hours,
+        $posts_ttl_hours,
+    );
     my $fetch_error_message = q{};
     my $fetch_attempts = 0;
     my $empty_profile_responses = 0;
@@ -105,14 +112,19 @@ sub explore_users {
             graph        => $graph,
             graph_path   => $graph_path,
             posts_limit  => $posts_limit,
+            profile_ttl_hours => $profile_ttl_hours,
+            posts_ttl_hours   => $posts_ttl_hours,
         );
         $profile_data = $fetch_result -> {profile_data};
         $fetch_error_message = $fetch_result -> {fetch_error_message};
         $fetch_attempts = $fetch_result -> {fetch_attempts};
         $empty_profile_responses = $fetch_result -> {empty_profile_responses};
     }
+    if (!$needs_fetch && $profile_data) {
+        _mark_cache_source($profile_data, 'cache');
+    }
 
-    if (!$profile_data || ($profile_data -> {account_type} // q{}) eq 'Private') {
+    if (!$profile_data) {
         _handle_missing_profile(
             graph                    => $graph,
             username                 => $username,
@@ -120,6 +132,9 @@ sub explore_users {
             fetch_attempts           => $fetch_attempts,
             empty_profile_responses  => $empty_profile_responses,
         );
+        return;
+    }
+    if (($profile_data -> {account_type} // q{}) eq 'Private') {
         return;
     }
 
@@ -146,6 +161,8 @@ sub explore_users {
         max_depth    => $max_depth,
         posts_limit  => $posts_limit,
         graph_path   => $graph_path,
+        profile_ttl_hours => $profile_ttl_hours,
+        posts_ttl_hours   => $posts_ttl_hours,
     );
     return;
 }
@@ -159,6 +176,8 @@ sub _fetch_profile_data {
     my $graph = $args{graph};
     my $graph_path = $args{graph_path};
     my $posts_limit = $args{posts_limit};
+    my $profile_ttl_hours = $args{profile_ttl_hours} // $DEFAULT_PROFILE_TTL_HOURS;
+    my $posts_ttl_hours = $args{posts_ttl_hours} // $DEFAULT_POSTS_TTL_HOURS;
 
     my $profile_data;
     my $fetch_error_message = q{};
@@ -178,6 +197,11 @@ sub _fetch_profile_data {
                         my $posts = fetch_posts($username, $key, $posts_limit);
                         $profile_info -> {latest_posts} = $posts;
                     }
+                    _set_cache_metadata(
+                        $profile_info,
+                        $profile_ttl_hours,
+                        $posts_ttl_hours,
+                    );
                     $cache -> {$username} = $profile_info;
                     save_cache($cache_path, $cache);
                     $profile_data = $profile_info;
@@ -269,6 +293,8 @@ sub _explore_profile_posts {
     my $max_depth = $args{max_depth};
     my $posts_limit = $args{posts_limit};
     my $graph_path = $args{graph_path};
+    my $profile_ttl_hours = $args{profile_ttl_hours};
+    my $posts_ttl_hours = $args{posts_ttl_hours};
 
     for my $post (@{ $profile_data -> {latest_posts} || [] }) {
         _explore_post_relations(
@@ -283,6 +309,8 @@ sub _explore_profile_posts {
             max_depth   => $max_depth,
             posts_limit => $posts_limit,
             graph_path  => $graph_path,
+            profile_ttl_hours => $profile_ttl_hours,
+            posts_ttl_hours   => $posts_ttl_hours,
         );
     }
     return;
@@ -323,9 +351,115 @@ sub _explore_post_relations {
                 max_depth   => $args{max_depth},
                 posts_limit => $args{posts_limit},
                 graph_path  => $args{graph_path},
+                profile_ttl_hours => $args{profile_ttl_hours},
+                posts_ttl_hours   => $args{posts_ttl_hours},
             );
         }
     }
+    return;
+}
+
+sub _needs_profile_fetch {
+    my ($profile_data, $profile_ttl_hours, $posts_ttl_hours) = @_;
+    if (!$profile_data) {
+        return 1;
+    }
+
+    my $profile_fresh = _is_profile_fresh($profile_data, $profile_ttl_hours);
+    if (!$profile_fresh) {
+        return 1;
+    }
+
+    my $account_type = $profile_data -> {account_type} // q{};
+    if ($account_type eq 'Private') {
+        return 0;
+    }
+
+    my $posts_fresh = _are_posts_fresh($profile_data, $posts_ttl_hours);
+    if (!$posts_fresh) {
+        return 1;
+    }
+    return 0;
+}
+
+sub _is_profile_fresh {
+    my ($profile_data, $profile_ttl_hours) = @_;
+    my $cache_meta = _cache_meta_hash($profile_data);
+    my $cached_at = $cache_meta -> {profile_cached_at};
+    return _is_cache_timestamp_fresh($cached_at, $profile_ttl_hours);
+}
+
+sub _are_posts_fresh {
+    my ($profile_data, $posts_ttl_hours) = @_;
+    if (!exists $profile_data -> {latest_posts}) {
+        return 0;
+    }
+    my $cache_meta = _cache_meta_hash($profile_data);
+    my $cached_at = $cache_meta -> {posts_cached_at};
+    return _is_cache_timestamp_fresh($cached_at, $posts_ttl_hours);
+}
+
+sub _is_cache_timestamp_fresh {
+    my ($cached_at, $ttl_hours) = @_;
+    if (!defined $cached_at || $cached_at eq q{}) {
+        return 0;
+    }
+    if (!defined $ttl_hours || $ttl_hours <= 0) {
+        return 0;
+    }
+    if ($cached_at !~ /^\d+$/xms) {
+        return 0;
+    }
+    my $ttl_seconds = _hours_to_seconds($ttl_hours);
+    my $expires_at = $cached_at + $ttl_seconds;
+    my $now_epoch = time;
+    if ($now_epoch <= $expires_at) {
+        return 1;
+    }
+    return 0;
+}
+
+sub _hours_to_seconds {
+    my ($hours) = @_;
+    return $hours * $SECONDS_PER_HOUR;
+}
+
+sub _cache_meta_hash {
+    my ($profile_data) = @_;
+    if (ref($profile_data -> {cache_meta}) eq 'HASH') {
+        return $profile_data -> {cache_meta};
+    }
+    return {};
+}
+
+sub _set_cache_metadata {
+    my ($profile_info, $profile_ttl_hours, $posts_ttl_hours) = @_;
+    my $now_epoch = time;
+    my $profile_expires_at = $now_epoch + _hours_to_seconds($profile_ttl_hours);
+    my $cache_meta = {
+        profile_cached_at => $now_epoch,
+        profile_expires_at => $profile_expires_at,
+        last_source => 'api',
+    };
+
+    if (exists $profile_info -> {latest_posts}) {
+        my $posts_expires_at = $now_epoch + _hours_to_seconds($posts_ttl_hours);
+        $cache_meta -> {posts_cached_at} = $now_epoch;
+        $cache_meta -> {posts_expires_at} = $posts_expires_at;
+    }
+
+    $profile_info -> {cache_meta} = $cache_meta;
+    return;
+}
+
+sub _mark_cache_source {
+    my ($profile_data, $source) = @_;
+    my $cache_meta = {};
+    if (ref($profile_data -> {cache_meta}) eq 'HASH') {
+        $cache_meta = $profile_data -> {cache_meta};
+    }
+    $cache_meta -> {last_source} = $source;
+    $profile_data -> {cache_meta} = $cache_meta;
     return;
 }
 

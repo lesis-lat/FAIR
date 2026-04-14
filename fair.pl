@@ -15,23 +15,36 @@ use FAIR::Graph qw(explore_users compute_suspicious_scores);
 use FAIR::Visualization qw(generate_html_from_files);
 
 our $VERSION = '0.1.0';
+my $DEFAULT_PROFILE_TTL_HOURS = (2 * 2 * 2) * (2 + 1);
+my $DEFAULT_POSTS_TTL_HOURS = (2 * 2) * (2 + 1);
 
 sub main {
     my %opts = (
-        depth => 2,
-        posts => 3,
+        depth             => 2,
+        posts             => 3,
+        profile_ttl_hours => $DEFAULT_PROFILE_TTL_HOURS,
+        posts_ttl_hours   => $DEFAULT_POSTS_TTL_HOURS,
     );
 
     GetOptions(
-        'username=s'        => \$opts{username},
-        'depth=i'           => \$opts{depth},
-        'posts=i'           => \$opts{posts},
-        'no-cache'          => \$opts{no_cache},
-        'suspicious-calc'   => \$opts{suspicious_calc},
+        'username=s'          => \$opts{username},
+        'depth=i'             => \$opts{depth},
+        'posts=i'             => \$opts{posts},
+        'no-cache'            => \$opts{no_cache},
+        'suspicious-calc'     => \$opts{suspicious_calc},
+        'profile-ttl-hours=i' => \$opts{profile_ttl_hours},
+        'posts-ttl-hours=i'   => \$opts{posts_ttl_hours},
     ) or die "Invalid arguments\n";
 
     if (!defined $opts{username} || $opts{username} eq q{}) {
-        die "Usage: perl fair.pl --username <handle> [--depth 2] [--posts 3] [--no-cache] [--suspicious-calc]\n";
+        die "Usage: perl fair.pl --username <handle> [--depth 2] [--posts 3] [--no-cache] [--suspicious-calc] [--profile-ttl-hours 24] [--posts-ttl-hours 12]\n";
+    }
+
+    if ($opts{profile_ttl_hours} < 0) {
+        die "--profile-ttl-hours must be >= 0\n";
+    }
+    if ($opts{posts_ttl_hours} < 0) {
+        die "--posts-ttl-hours must be >= 0\n";
     }
 
     my $username   = $opts{username};
@@ -65,6 +78,8 @@ sub main {
         max_depth   => $max_depth,
         posts_limit => $posts_limit,
         graph_path  => $graph_path,
+        profile_ttl_hours => $opts{profile_ttl_hours},
+        posts_ttl_hours   => $opts{posts_ttl_hours},
     );
 
     if ($opts{suspicious_calc}) {

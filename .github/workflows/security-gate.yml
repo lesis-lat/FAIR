@@ -1,0 +1,40 @@
+name: Security Gate - LESIS
+
+on:
+  pull_request:
+    branches:
+      - main
+      - develop
+
+permissions:
+  security-events: read
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      MAX_CRITICAL: 0
+      MAX_HIGH: 0
+      MAX_MEDIUM: 0
+      MAX_LOW: 0
+      GITHUB_TOKEN: ${{ secrets.TOKEN }}
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v6
+
+    - name: Pull Docker image from GitHub Container Registry
+      run: docker pull ghcr.io/lesis-lat/security-gate/security-gate:latest
+
+    - name: Verify security alerts from GHAS
+      run: |
+        docker run ghcr.io/lesis-lat/security-gate/security-gate:latest \
+        -t "$GITHUB_TOKEN" \
+        -r "${{ github.repository }}" \
+        -c "$MAX_CRITICAL" \
+        -h "$MAX_HIGH" \
+        -m "$MAX_MEDIUM" \
+        -l "$MAX_LOW" \
+        --dependency-alerts \
+        --secret-alerts \
+        --code-alerts

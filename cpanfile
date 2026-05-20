@@ -1,4 +1,4 @@
-requires 'HTTP::Tiny', '0.092';
+requires 'HTTP::Tiny', '0.094';
 requires 'JSON::PP', '4.18';
 requires 'Getopt::Long', '2.58';
 requires 'FindBin', '1.54';

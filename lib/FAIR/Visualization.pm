@@ -3,9 +3,10 @@ package FAIR::Visualization;
 use strict;
 use warnings;
 use Exporter 'import';
-use Carp qw(croak);
-use English qw(-no_match_vars);
+use Carp     qw(croak);
+use English  qw(-no_match_vars);
 use JSON::PP qw(encode_json);
+use Readonly;
 
 use FAIR::Cache qw(
   load_graph
@@ -25,15 +26,14 @@ our @EXPORT_OK = qw(
 );
 
 our $VERSION = '0.1.0';
-
-my $THREE = 1 + 2;
-my $FIVE = 2 + 2 + 1;
-my $FIFTEEN = (2 * 2 * 2) + (2 * 2) + (1 + 2);
-my $SUSPICIOUS_SCORE_THRESHOLD = 1 - (2 / (2 + 2 + 1));
-my $NODE_SIZE_MULTIPLIER = 1 + (1 / 2);
+Readonly my $THREE                      => 3;
+Readonly my $FIVE                       => 5;
+Readonly my $FIFTEEN                    => 15;
+Readonly my $SUSPICIOUS_SCORE_THRESHOLD => 0.6;
+Readonly my $NODE_SIZE_MULTIPLIER       => 1.5;
 
 sub generate_html {
-    my ($social_graph, $main_user, %opts) = @_;
+    my($social_graph, $main_user, %opts) = @_;
     my $suspicious_calc = 0;
     if ($opts{suspicious_calc}) {
         $suspicious_calc = 1;
@@ -47,38 +47,28 @@ sub generate_html {
     }
     my $graph = $social_graph -> {graph};
     my $cache = $social_graph -> {cache} || {};
-    my $subgraph = _select_subgraph(
-        $graph,
-        $main_user,
-        $show_only_main_relations,
-        $suspicious_calc,
-    );
-    my @nodes_data = _build_nodes_data(
-        $subgraph,
-        $cache,
-        $main_user,
-        $suspicious_calc,
-    );
-    my @links_data = _build_links_data($subgraph);
-    my $nodes_json = encode_json(\@nodes_data);
-    my $links_json = encode_json(\@links_data);
+    my $subgraph =
+      _select_subgraph($graph, $main_user, $show_only_main_relations,
+        $suspicious_calc,);
+    my @nodes_data =
+      _build_nodes_data($subgraph, $cache, $main_user, $suspicious_calc,);
+    my @links_data                 = _build_links_data($subgraph);
+    my $nodes_json                 = encode_json(\@nodes_data);
+    my $links_json                 = encode_json(\@links_data);
     my $has_relationship_data_json = 'false';
+
     if (@links_data) {
         $has_relationship_data_json = 'true';
     }
-    my $html = _build_html_document(
-        $main_user,
-        $nodes_json,
-        $links_json,
-        $has_relationship_data_json,
-    );
+    my $html = _build_html_document($main_user, $nodes_json, $links_json,
+        $has_relationship_data_json,);
     my $html_file = "graph_${main_user}.html";
     _write_html_file($html_file, $html);
     return $html_file;
 }
 
 sub _select_subgraph {
-    my ($graph, $main_user, $show_only_main_relations, $suspicious_calc) = @_;
+    my($graph, $main_user, $show_only_main_relations, $suspicious_calc) = @_;
     my $subgraph = graph_copy($graph);
     if ($show_only_main_relations) {
         my %allowed = ($main_user => 1);
@@ -102,20 +92,17 @@ sub _select_subgraph {
 }
 
 sub _build_nodes_data {
-    my ($subgraph, $cache, $main_user, $suspicious_calc) = @_;
+    my($subgraph, $cache, $main_user, $suspicious_calc) = @_;
     my @nodes_data;
     for my $node (graph_nodes($subgraph)) {
-        my $node_data = _build_single_node_data(
-            $subgraph,
-            $cache,
-            $main_user,
-            $suspicious_calc,
-            $node,
-        );
+        my $node_data =
+          _build_single_node_data($subgraph, $cache, $main_user,
+            $suspicious_calc, $node,);
         push @nodes_data, $node_data;
     }
     if (!@nodes_data) {
-        push @nodes_data, {
+        push @nodes_data,
+          {
             id               => $main_user,
             label            => $main_user,
             color            => '#6699cc',
@@ -124,52 +111,54 @@ sub _build_nodes_data {
             interaction_type => 'none',
             followers        => $cache -> {$main_user}{followers} // 0,
             following        => $cache -> {$main_user}{following} // 0,
-        };
+          };
     }
     return @nodes_data;
 }
 
 sub _build_single_node_data {
-    my ($subgraph, $cache, $main_user, $suspicious_calc, $node) = @_;
-    my $score = $cache -> {$node}{suspicious_score}{final_score} // 0;
+    my($subgraph, $cache, $main_user, $suspicious_calc, $node) = @_;
+    my $score      = $cache -> {$node}{suspicious_score}{final_score} // 0;
     my $cache_meta = {};
     if (ref($cache -> {$node}{cache_meta}) eq 'HASH') {
         $cache_meta = $cache -> {$node}{cache_meta};
     }
     my @incoming_neighbors = graph_predecessors($subgraph, $node);
     my @outgoing_neighbors = graph_successors($subgraph, $node);
-    my %neighbor_set = map { $_ => 1 } (@incoming_neighbors, @outgoing_neighbors);
+    my %neighbor_set =
+      map { $_ => 1 } (@incoming_neighbors, @outgoing_neighbors);
     my $has_main_connection = 0;
     if (exists $neighbor_set{$main_user}) {
         $has_main_connection = 1;
     }
     my $is_isolated = 0;
-    if (
-        $node ne $main_user
+    if (   $node ne $main_user
         && scalar(keys %neighbor_set) == 1
-        && $has_main_connection
-    ) {
+        && $has_main_connection)
+    {
         $is_isolated = 1;
     }
-    my $color = _node_color({
-        node                => $node,
-        main_user           => $main_user,
-        suspicious_calc     => $suspicious_calc,
-        score               => $score,
-        is_isolated         => $is_isolated,
-        has_main_connection => $has_main_connection,
-    });
+    my $color = _node_color(
+        {
+            node                => $node,
+            main_user           => $main_user,
+            suspicious_calc     => $suspicious_calc,
+            score               => $score,
+            is_isolated         => $is_isolated,
+            has_main_connection => $has_main_connection,
+        }
+    );
     my $interaction_type = _interaction_type(
         scalar(@incoming_neighbors),
         scalar(@outgoing_neighbors),
     );
     my $full_name = $subgraph -> {nodes}{$node}{full_name} // q{};
-    my $label = $node;
+    my $label     = $node;
     if ($full_name ne q{} && lc $full_name ne lc $node) {
         $label = "$node\n($full_name)";
     }
     my $count = $subgraph -> {nodes}{$node}{count} // 1;
-    my $size = $count * $NODE_SIZE_MULTIPLIER;
+    my $size  = $count * $NODE_SIZE_MULTIPLIER;
     if ($size < $THREE) {
         $size = $THREE;
     }
@@ -177,30 +166,30 @@ sub _build_single_node_data {
         $size = $FIFTEEN;
     }
     return {
-        id               => $node,
-        label            => $label,
-        color            => $color,
-        size             => $size,
-        is_isolated      => _json_boolean($is_isolated),
-        interaction_type => $interaction_type,
-        followers        => $cache -> {$node}{followers} // 0,
-        following        => $cache -> {$node}{following} // 0,
-        suspicious_score => $score,
-        profile_cached_at => $cache_meta -> {profile_cached_at} // q{},
+        id                 => $node,
+        label              => $label,
+        color              => $color,
+        size               => $size,
+        is_isolated        => _json_boolean($is_isolated),
+        interaction_type   => $interaction_type,
+        followers          => $cache -> {$node}{followers} // 0,
+        following          => $cache -> {$node}{following} // 0,
+        suspicious_score   => $score,
+        profile_cached_at  => $cache_meta -> {profile_cached_at}  // q{},
         profile_expires_at => $cache_meta -> {profile_expires_at} // q{},
-        posts_cached_at => $cache_meta -> {posts_cached_at} // q{},
-        posts_expires_at => $cache_meta -> {posts_expires_at} // q{},
-        cache_source => $cache_meta -> {last_source} // q{},
+        posts_cached_at    => $cache_meta -> {posts_cached_at}    // q{},
+        posts_expires_at   => $cache_meta -> {posts_expires_at}   // q{},
+        cache_source       => $cache_meta -> {last_source}        // q{},
     };
 }
 
 sub _node_color {
-    my ($args) = @_;
-    my $node = $args -> {node};
-    my $main_user = $args -> {main_user};
-    my $suspicious_calc = $args -> {suspicious_calc};
-    my $score = $args -> {score};
-    my $is_isolated = $args -> {is_isolated};
+    my($args)               = @_;
+    my $node                = $args -> {node};
+    my $main_user           = $args -> {main_user};
+    my $suspicious_calc     = $args -> {suspicious_calc};
+    my $score               = $args -> {score};
+    my $is_isolated         = $args -> {is_isolated};
     my $has_main_connection = $args -> {has_main_connection};
 
     if ($node eq $main_user) {
@@ -219,7 +208,7 @@ sub _node_color {
 }
 
 sub _interaction_type {
-    my ($incoming_count, $outgoing_count) = @_;
+    my($incoming_count, $outgoing_count) = @_;
     if ($incoming_count && $outgoing_count) {
         return 'bidirectional';
     }
@@ -233,10 +222,10 @@ sub _interaction_type {
 }
 
 sub _build_links_data {
-    my ($subgraph) = @_;
+    my($subgraph) = @_;
     my @links_data;
     for my $edge (graph_edges($subgraph)) {
-        my ($source, $target, $attributes) = @{$edge};
+        my($source, $target, $attributes) = @{$edge};
         my $interactions = $attributes -> {interactions};
         if (ref($interactions) ne 'ARRAY' || !@{$interactions}) {
             next;
@@ -246,11 +235,10 @@ sub _build_links_data {
             my $type = $interaction -> {type} // 'unknown';
             $types{$type}++;
         }
-        my @sorted_types = sort {
-            ($types{$a} <=> $types{$b}) || ($a cmp $b)
-        } keys %types;
+        my @sorted_types =
+          sort { ($types{$a} <=> $types{$b}) || ($a cmp $b) } keys %types;
         my $dominant_type = $sorted_types[-1];
-        my $edge_color = {
+        my $edge_color    = {
             comment => '#2ecc71',
             mention => '#e74c3c',
             tag     => '#3498db',
@@ -260,7 +248,7 @@ sub _build_links_data {
             $weight = $FIVE;
         }
         my $interaction_count = scalar @{$interactions};
-        my $last_interaction = q{};
+        my $last_interaction  = q{};
         for my $interaction (@{$interactions}) {
             my $timestamp = $interaction -> {timestamp};
             if (!defined $timestamp || $timestamp eq q{}) {
@@ -279,7 +267,8 @@ sub _build_links_data {
                 $last_interaction = $timestamp;
             }
         }
-        push @links_data, {
+        push @links_data,
+          {
             source            => $source,
             target            => $target,
             color             => $edge_color,
@@ -287,18 +276,14 @@ sub _build_links_data {
             type              => $dominant_type,
             interaction_count => $interaction_count,
             last_interaction  => $last_interaction,
-        };
+          };
     }
     return @links_data;
 }
 
 sub _build_html_document {
-    my (
-        $main_user,
-        $nodes_json,
-        $links_json,
-        $has_relationship_data_json,
-    ) = @_;
+    my($main_user, $nodes_json, $links_json, $has_relationship_data_json,) =
+      @_;
     my $html = <<'HTML';
 <!doctype html>
 <html lang="en">
@@ -1858,7 +1843,7 @@ HTML
 }
 
 sub _write_html_file {
-    my ($html_file, $html) = @_;
+    my($html_file, $html) = @_;
     open my $fh, '>:encoding(UTF-8)', $html_file
       or croak "Cannot write $html_file: $OS_ERROR";
     print {$fh} $html;
@@ -1867,7 +1852,7 @@ sub _write_html_file {
 }
 
 sub _json_boolean {
-    my ($value) = @_;
+    my($value) = @_;
     if ($value) {
         return JSON::PP::true;
     }
@@ -1875,7 +1860,7 @@ sub _json_boolean {
 }
 
 sub generate_html_from_files {
-    my ($graph_path, $cache_path, $main_user, %opts) = @_;
+    my($graph_path, $cache_path, $main_user, %opts) = @_;
 
     my $graph = load_graph($graph_path);
     my $cache = load_cache($cache_path);

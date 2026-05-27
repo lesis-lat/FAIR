@@ -1,5 +1,6 @@
-requires 'HTTP::Tiny', '0.094';
-requires 'JSON::PP', '4.18';
+requires 'HTTP::Tiny',   '0.094';
+requires 'JSON::PP',     '4.18';
 requires 'Getopt::Long', '2.58';
-requires 'FindBin', '1.54';
-requires 'Time::Piece', '1.41';
+requires 'FindBin',      '1.54';
+requires 'Readonly',     '2.05';
+requires 'Time::Piece',  '1.41';

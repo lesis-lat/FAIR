@@ -3,8 +3,8 @@ package FAIR::Cache;
 use strict;
 use warnings;
 use Exporter 'import';
-use Carp qw(croak);
-use English qw(-no_match_vars);
+use Carp     qw(croak);
+use English  qw(-no_match_vars);
 use JSON::PP qw(decode_json encode_json);
 
 our $VERSION = '0.1.0';
@@ -32,7 +32,7 @@ our @EXPORT_OK = qw(
 );
 
 sub load_cache {
-    my ($path) = @_;
+    my($path) = @_;
     if (!defined $path || !-e $path) {
         return {};
     }
@@ -51,7 +51,7 @@ sub load_cache {
 }
 
 sub save_cache {
-    my ($path, $data) = @_;
+    my($path, $data) = @_;
     $data ||= {};
     my $encoder = JSON::PP -> new;
     $encoder -> utf8;
@@ -61,7 +61,7 @@ sub save_cache {
 }
 
 sub new_graph {
-    my (%args) = @_;
+    my(%args) = @_;
     my $directed = 1;
     if (exists $args{directed}) {
         $directed = $args{directed};
@@ -78,7 +78,7 @@ sub new_graph {
 }
 
 sub save_graph {
-    my ($path, $graph) = @_;
+    my($path, $graph) = @_;
     $graph ||= new_graph();
 
     my $directed_flag = JSON::PP::false;
@@ -91,20 +91,25 @@ sub save_graph {
         edges    => [],
     };
 
-    for my $node_id (sort keys %{ $graph -> {nodes} || {} }) {
-        push @{ $payload -> {nodes} }, {
+    for my $node_id (sort keys %{$graph -> {nodes} || {}}) {
+        push @{$payload -> {nodes}},
+          {
             id         => $node_id,
-            attributes => _coerce_json_attributes($graph -> {nodes}{$node_id}),
-        };
+            attributes =>
+              _coerce_json_attributes($graph -> {nodes}{$node_id}),
+          };
     }
 
-    for my $source (sort keys %{ $graph -> {edges} || {} }) {
-        for my $target (sort keys %{ $graph -> {edges}{$source} || {} }) {
-            push @{ $payload -> {edges} }, {
+    for my $source (sort keys %{$graph -> {edges} || {}}) {
+        for my $target (sort keys %{$graph -> {edges}{$source} || {}}) {
+            push @{$payload -> {edges}},
+              {
                 source     => $source,
                 target     => $target,
-                attributes => _coerce_json_attributes($graph -> {edges}{$source}{$target}),
-            };
+                attributes => _coerce_json_attributes(
+                    $graph -> {edges}{$source}{$target}
+                ),
+              };
         }
     }
 
@@ -116,14 +121,15 @@ sub save_graph {
 }
 
 sub load_graph {
-    my ($path) = @_;
+    my($path) = @_;
     if (!defined $path || !-e $path) {
         return new_graph(directed => 1);
     }
 
     my $content = _read_file($path);
     my $payload;
-    eval { $payload = decode_json($content); 1 } or return new_graph(directed => 1);
+    eval { $payload = decode_json($content); 1 }
+      or return new_graph(directed => 1);
 
     my $directed_value = 0;
     if ($payload -> {directed}) {
@@ -131,7 +137,7 @@ sub load_graph {
     }
     my $graph = new_graph(directed => $directed_value);
 
-    for my $node (@{ $payload -> {nodes} || [] }) {
+    for my $node (@{$payload -> {nodes} || []}) {
         my $node_id = $node -> {id};
         if (!defined $node_id || $node_id eq q{}) {
             next;
@@ -143,7 +149,7 @@ sub load_graph {
         $graph -> {nodes}{$node_id} = $attributes;
     }
 
-    for my $edge (@{ $payload -> {edges} || [] }) {
+    for my $edge (@{$payload -> {edges} || []}) {
         my $source = $edge -> {source};
         my $target = $edge -> {target};
         if (!defined $source || !defined $target) {
@@ -156,7 +162,7 @@ sub load_graph {
         }
         $graph -> {edges}{$source}{$target} = $attrs;
         if (!$graph -> {directed}) {
-            $graph -> {edges}{$target}{$source} = { %{$attrs} };
+            $graph -> {edges}{$target}{$source} = {%{$attrs}};
         }
 
         $graph -> {nodes}{$source} ||= {};
@@ -167,28 +173,29 @@ sub load_graph {
 }
 
 sub graph_nodes {
-    my ($graph) = @_;
-    return keys %{ $graph -> {nodes} || {} };
+    my($graph) = @_;
+    return keys %{$graph -> {nodes} || {}};
 }
 
 sub graph_edges {
-    my ($graph) = @_;
+    my($graph) = @_;
     my @edges;
-    for my $source (keys %{ $graph -> {edges} || {} }) {
-        for my $target (keys %{ $graph -> {edges}{$source} || {} }) {
-            push @edges, [$source, $target, $graph -> {edges}{$source}{$target}];
+    for my $source (keys %{$graph -> {edges} || {}}) {
+        for my $target (keys %{$graph -> {edges}{$source} || {}}) {
+            push @edges,
+              [$source, $target, $graph -> {edges}{$source}{$target}];
         }
     }
     return @edges;
 }
 
 sub graph_has_node {
-    my ($graph, $node) = @_;
+    my($graph, $node) = @_;
     return exists($graph -> {nodes}{$node});
 }
 
 sub graph_add_node {
-    my ($graph, $node, $attrs) = @_;
+    my($graph, $node, $attrs) = @_;
     $attrs ||= {};
     $graph -> {nodes}{$node} ||= {};
     for my $key (keys %{$attrs}) {
@@ -198,17 +205,17 @@ sub graph_add_node {
 }
 
 sub graph_get_node {
-    my ($graph, $node) = @_;
+    my($graph, $node) = @_;
     return $graph -> {nodes}{$node};
 }
 
 sub graph_has_edge {
-    my ($graph, $source, $target) = @_;
+    my($graph, $source, $target) = @_;
     return exists($graph -> {edges}{$source}{$target});
 }
 
 sub graph_add_edge {
-    my ($graph, $source, $target, $attrs) = @_;
+    my($graph, $source, $target, $attrs) = @_;
     $attrs ||= {};
     $graph -> {edges}{$source} ||= {};
     $graph -> {edges}{$source}{$target} ||= {};
@@ -221,25 +228,26 @@ sub graph_add_edge {
 
     if (!$graph -> {directed}) {
         $graph -> {edges}{$target} ||= {};
-        $graph -> {edges}{$target}{$source} = { %{ $graph -> {edges}{$source}{$target} } };
+        $graph -> {edges}{$target}{$source} =
+          {%{$graph -> {edges}{$source}{$target}}};
     }
     return;
 }
 
 sub graph_get_edge {
-    my ($graph, $source, $target) = @_;
+    my($graph, $source, $target) = @_;
     return $graph -> {edges}{$source}{$target};
 }
 
 sub graph_successors {
-    my ($graph, $node) = @_;
-    return keys %{ $graph -> {edges}{$node} || {} };
+    my($graph, $node) = @_;
+    return keys %{$graph -> {edges}{$node} || {}};
 }
 
 sub graph_predecessors {
-    my ($graph, $node) = @_;
+    my($graph, $node) = @_;
     my @pred;
-    for my $source (keys %{ $graph -> {edges} || {} }) {
+    for my $source (keys %{$graph -> {edges} || {}}) {
         if (exists $graph -> {edges}{$source}{$node}) {
             push @pred, $source;
         }
@@ -248,7 +256,7 @@ sub graph_predecessors {
 }
 
 sub graph_neighbors {
-    my ($graph, $node) = @_;
+    my($graph, $node) = @_;
     my %neighbors;
     for my $successor (graph_successors($graph, $node)) {
         $neighbors{$successor} = 1;
@@ -260,38 +268,40 @@ sub graph_neighbors {
 }
 
 sub graph_degree {
-    my ($graph, $node) = @_;
-    my $degree = scalar(graph_successors($graph, $node)) + scalar(graph_predecessors($graph, $node));
+    my($graph, $node) = @_;
+    my $degree = scalar(graph_successors($graph, $node)) +
+      scalar(graph_predecessors($graph, $node));
     return $degree;
 }
 
 sub graph_copy {
-    my ($graph) = @_;
+    my($graph) = @_;
     my $json = encode_json($graph);
     return decode_json($json);
 }
 
 sub graph_subgraph {
-    my ($graph, $allowed_nodes) = @_;
-    my %allowed = map { $_ => 1 } @{ $allowed_nodes || [] };
+    my($graph, $allowed_nodes) = @_;
+    my %allowed = map { $_ => 1 } @{$allowed_nodes || []};
 
     my $sub = new_graph(directed => $graph -> {directed});
     for my $node (keys %allowed) {
         if (!exists $graph -> {nodes}{$node}) {
             next;
         }
-        $sub -> {nodes}{$node} = { %{ $graph -> {nodes}{$node} || {} } };
+        $sub -> {nodes}{$node} = {%{$graph -> {nodes}{$node} || {}}};
     }
 
-    for my $source (keys %{ $graph -> {edges} || {} }) {
+    for my $source (keys %{$graph -> {edges} || {}}) {
         if (!$allowed{$source}) {
             next;
         }
-        for my $target (keys %{ $graph -> {edges}{$source} || {} }) {
+        for my $target (keys %{$graph -> {edges}{$source} || {}}) {
             if (!$allowed{$target}) {
                 next;
             }
-            graph_add_edge($sub, $source, $target, { %{ $graph -> {edges}{$source}{$target} || {} } });
+            graph_add_edge($sub, $source, $target,
+                {%{$graph -> {edges}{$source}{$target} || {}}});
         }
     }
 
@@ -299,7 +309,7 @@ sub graph_subgraph {
 }
 
 sub _coerce_json_attributes {
-    my ($attributes) = @_;
+    my($attributes) = @_;
     $attributes ||= {};
 
     my $ok = eval { encode_json($attributes); 1 };
@@ -309,7 +319,7 @@ sub _coerce_json_attributes {
 
     my %coerced;
     for my $key (keys %{$attributes}) {
-        my $value = $attributes -> {$key};
+        my $value         = $attributes -> {$key};
         my $coerced_value = q{};
         if (defined $value) {
             $coerced_value = "$value";
@@ -320,16 +330,16 @@ sub _coerce_json_attributes {
 }
 
 sub _read_file {
-    my ($path) = @_;
+    my($path) = @_;
     open my $fh, '<:encoding(UTF-8)', $path or return;
-    my @lines = <$fh>;
+    my @lines   = <$fh>;
     my $content = join q{}, @lines;
     close $fh or croak "Cannot close $path: $OS_ERROR";
     return $content;
 }
 
 sub _write_file {
-    my ($path, $content) = @_;
+    my($path, $content) = @_;
     open my $fh, '>:encoding(UTF-8)', $path
       or croak "Cannot write $path: $OS_ERROR";
     print {$fh} $content;

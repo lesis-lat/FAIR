@@ -19,6 +19,8 @@ use FAIR::Cache qw(
   graph_get_edge
   graph_nodes
   graph_degree
+  graph_shortest_path
+  graph_shared_neighbors
 );
 use FAIR::Metrics
   qw(entropy temporal_entropy burstiness transform_burstiness);
@@ -27,6 +29,7 @@ our @EXPORT_OK = qw(
   update_graph_node
   explore_users
   compute_suspicious_scores
+  build_connection_report
 );
 
 our $VERSION = '0.1.0';
@@ -45,7 +48,7 @@ Readonly my $SCORE_NO_POSTS_USERNAME          => 0.35;
 Readonly my $SCORE_NO_POSTS_NAME              => 0.25;
 
 sub update_graph_node {
-    my($graph, $username, %args) = @_;
+    my ($graph, $username, %args) = @_;
 
     if (!graph_has_node($graph, $username)) {
         graph_add_node(
@@ -67,7 +70,7 @@ sub update_graph_node {
 }
 
 sub explore_users {
-    my(%args) = @_;
+    my (%args) = @_;
 
     my $username          = $args{username};
     my $api_keys          = $args{api_keys} || [];
@@ -162,7 +165,7 @@ sub explore_users {
 }
 
 sub _fetch_profile_data {
-    my(%args)             = @_;
+    my (%args)             = @_;
     my $username          = $args{username};
     my $api_keys          = $args{api_keys} || [];
     my $cache             = $args{cache}    || {};
@@ -226,7 +229,7 @@ sub _fetch_profile_data {
 }
 
 sub _save_graph_snapshot {
-    my($graph_path, $graph) = @_;
+    my ($graph_path, $graph) = @_;
     if (!$graph_path) {
         return;
     }
@@ -245,7 +248,7 @@ sub _save_graph_snapshot {
 }
 
 sub _handle_missing_profile {
-    my(%args)                   = @_;
+    my (%args)                   = @_;
     my $graph                   = $args{graph};
     my $username                = $args{username};
     my $fetch_error_message     = $args{fetch_error_message}     // q{};
@@ -277,7 +280,7 @@ sub _handle_missing_profile {
 }
 
 sub _explore_profile_posts {
-    my(%args)             = @_;
+    my (%args)             = @_;
     my $profile_data      = $args{profile_data};
     my $username          = $args{username};
     my $graph             = $args{graph};
@@ -313,7 +316,7 @@ sub _explore_profile_posts {
 }
 
 sub _explore_post_relations {
-    my(%args)     = @_;
+    my (%args)     = @_;
     my $post      = $args{post};
     my $username  = $args{username};
     my $graph     = $args{graph};
@@ -323,7 +326,7 @@ sub _explore_post_relations {
         ['commenters',   'comment'],
     );
     for my $relation (@relations) {
-        my($relation_key, $interaction_type) = @{$relation};
+        my ($relation_key, $interaction_type) = @{$relation};
         for my $related_user (@{$post -> {$relation_key} || []}) {
             if (   !defined $related_user
                 || $related_user eq q{}
@@ -360,7 +363,7 @@ sub _explore_post_relations {
 }
 
 sub _needs_profile_fetch {
-    my($profile_data, $profile_ttl_hours, $posts_ttl_hours) = @_;
+    my ($profile_data, $profile_ttl_hours, $posts_ttl_hours) = @_;
     if (!$profile_data) {
         return 1;
     }
@@ -383,14 +386,14 @@ sub _needs_profile_fetch {
 }
 
 sub _is_profile_fresh {
-    my($profile_data, $profile_ttl_hours) = @_;
+    my ($profile_data, $profile_ttl_hours) = @_;
     my $cache_meta = _cache_meta_hash($profile_data);
     my $cached_at  = $cache_meta -> {profile_cached_at};
     return _is_cache_timestamp_fresh($cached_at, $profile_ttl_hours);
 }
 
 sub _are_posts_fresh {
-    my($profile_data, $posts_ttl_hours) = @_;
+    my ($profile_data, $posts_ttl_hours) = @_;
     if (!exists $profile_data -> {latest_posts}) {
         return 0;
     }
@@ -400,7 +403,7 @@ sub _are_posts_fresh {
 }
 
 sub _is_cache_timestamp_fresh {
-    my($cached_at, $ttl_hours) = @_;
+    my ($cached_at, $ttl_hours) = @_;
     if (!defined $cached_at || $cached_at eq q{}) {
         return 0;
     }
@@ -420,12 +423,12 @@ sub _is_cache_timestamp_fresh {
 }
 
 sub _hours_to_seconds {
-    my($hours) = @_;
+    my ($hours) = @_;
     return $hours * $SECONDS_PER_HOUR;
 }
 
 sub _cache_meta_hash {
-    my($profile_data) = @_;
+    my ($profile_data) = @_;
     if (ref($profile_data -> {cache_meta}) eq 'HASH') {
         return $profile_data -> {cache_meta};
     }
@@ -433,7 +436,7 @@ sub _cache_meta_hash {
 }
 
 sub _set_cache_metadata {
-    my($profile_info, $profile_ttl_hours, $posts_ttl_hours) = @_;
+    my ($profile_info, $profile_ttl_hours, $posts_ttl_hours) = @_;
     my $now_epoch = time;
     my $profile_expires_at =
       $now_epoch + _hours_to_seconds($profile_ttl_hours);
@@ -455,7 +458,7 @@ sub _set_cache_metadata {
 }
 
 sub _mark_cache_source {
-    my($profile_data, $source) = @_;
+    my ($profile_data, $source) = @_;
     my $cache_meta = {};
     if (ref($profile_data -> {cache_meta}) eq 'HASH') {
         $cache_meta = $profile_data -> {cache_meta};
@@ -466,7 +469,7 @@ sub _mark_cache_source {
 }
 
 sub _upsert_interaction_edge {
-    my(%args)            = @_;
+    my (%args)            = @_;
     my $graph            = $args{graph};
     my $username         = $args{username};
     my $related_user     = $args{related_user};
@@ -506,7 +509,7 @@ sub _upsert_interaction_edge {
 }
 
 sub compute_suspicious_scores {
-    my($cache, $graph, $main_user) = @_;
+    my ($cache, $graph, $main_user) = @_;
 
     for my $node (graph_nodes($graph)) {
         if ($node eq $main_user) {
@@ -616,8 +619,41 @@ sub compute_suspicious_scores {
     return;
 }
 
+sub build_connection_report {
+    my ($graph, $left_user, $right_user) = @_;
+    my $path = graph_shortest_path($graph, $left_user, $right_user);
+    my $shared_neighbors =
+      graph_shared_neighbors($graph, $left_user, $right_user);
+    my $has_connection = 0;
+    if (@{$path}) {
+        $has_connection = 1;
+    }
+
+    my $is_direct_connection = 0;
+    if (graph_has_edge($graph, $left_user, $right_user)) {
+        $is_direct_connection = 1;
+    }
+    if (graph_has_edge($graph, $right_user, $left_user)) {
+        $is_direct_connection = 1;
+    }
+
+    my $path_length = 0;
+    if (@{$path} > 1) {
+        $path_length = scalar(@{$path}) - 1;
+    }
+
+    return {
+        has_connection     => $has_connection,
+        is_direct          => $is_direct_connection,
+        path               => $path,
+        path_length        => $path_length,
+        shared_neighbors   => $shared_neighbors,
+        shared_count       => scalar @{$shared_neighbors},
+    };
+}
+
 sub _parse_date {
-    my($value) = @_;
+    my ($value) = @_;
     if (!defined $value || $value eq q{}) {
         return;
     }

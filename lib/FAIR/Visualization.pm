@@ -33,7 +33,7 @@ Readonly my $SUSPICIOUS_SCORE_THRESHOLD => 0.6;
 Readonly my $NODE_SIZE_MULTIPLIER       => 1.5;
 
 sub generate_html {
-    my($social_graph, $main_user, %opts) = @_;
+    my ($social_graph, $main_user, %opts) = @_;
     my $suspicious_calc = 0;
     if ($opts{suspicious_calc}) {
         $suspicious_calc = 1;
@@ -45,30 +45,57 @@ sub generate_html {
             $show_only_main_relations = 1;
         }
     }
+    my $comparison = $opts{comparison};
     my $graph = $social_graph -> {graph};
     my $cache = $social_graph -> {cache} || {};
     my $subgraph =
       _select_subgraph($graph, $main_user, $show_only_main_relations,
         $suspicious_calc,);
-    my @nodes_data =
-      _build_nodes_data($subgraph, $cache, $main_user, $suspicious_calc,);
+    my @nodes_data = _build_nodes_data(
+        $subgraph,
+        $cache,
+        $main_user,
+        $suspicious_calc,
+        $comparison,
+    );
     my @links_data                 = _build_links_data($subgraph);
     my $nodes_json                 = encode_json(\@nodes_data);
     my $links_json                 = encode_json(\@links_data);
     my $has_relationship_data_json = 'false';
+    my $graph_title = "Activity Map for \@$main_user";
+    my $graph_subtitle = 'FAIR interactive graph';
+    my $comparison_summary_html = q{};
 
     if (@links_data) {
         $has_relationship_data_json = 'true';
     }
-    my $html = _build_html_document($main_user, $nodes_json, $links_json,
-        $has_relationship_data_json,);
+    if ($comparison) {
+        my $secondary_user = $comparison -> {secondary_user};
+        $graph_title = "Comparison Map for \@$main_user and \@$secondary_user";
+        $graph_subtitle = _comparison_subtitle($comparison);
+        $comparison_summary_html = _comparison_summary_html($comparison);
+    }
+    my $html = _build_html_document(
+        {
+            main_user                  => $main_user,
+            nodes_json                 => $nodes_json,
+            links_json                 => $links_json,
+            has_relationship_data_json => $has_relationship_data_json,
+            graph_title                => $graph_title,
+            graph_subtitle             => $graph_subtitle,
+            comparison_summary_html    => $comparison_summary_html,
+        }
+    );
     my $html_file = "graph_${main_user}.html";
+    if ($opts{output_file}) {
+        $html_file = $opts{output_file};
+    }
     _write_html_file($html_file, $html);
     return $html_file;
 }
 
 sub _select_subgraph {
-    my($graph, $main_user, $show_only_main_relations, $suspicious_calc) = @_;
+    my ($graph, $main_user, $show_only_main_relations, $suspicious_calc) = @_;
     my $subgraph = graph_copy($graph);
     if ($show_only_main_relations) {
         my %allowed = ($main_user => 1);
@@ -92,12 +119,19 @@ sub _select_subgraph {
 }
 
 sub _build_nodes_data {
-    my($subgraph, $cache, $main_user, $suspicious_calc) = @_;
+    my ($subgraph, $cache, $main_user, $suspicious_calc, $comparison) = @_;
     my @nodes_data;
     for my $node (graph_nodes($subgraph)) {
-        my $node_data =
-          _build_single_node_data($subgraph, $cache, $main_user,
-            $suspicious_calc, $node,);
+        my $node_data = _build_single_node_data(
+            {
+                subgraph        => $subgraph,
+                cache           => $cache,
+                main_user       => $main_user,
+                suspicious_calc => $suspicious_calc,
+                node            => $node,
+                comparison      => $comparison,
+            }
+        );
         push @nodes_data, $node_data;
     }
     if (!@nodes_data) {
@@ -117,11 +151,24 @@ sub _build_nodes_data {
 }
 
 sub _build_single_node_data {
-    my($subgraph, $cache, $main_user, $suspicious_calc, $node) = @_;
+    my ($args) = @_;
+    my $subgraph        = $args -> {subgraph};
+    my $cache           = $args -> {cache};
+    my $main_user       = $args -> {main_user};
+    my $suspicious_calc = $args -> {suspicious_calc};
+    my $node            = $args -> {node};
+    my $comparison      = $args -> {comparison};
     my $score      = $cache -> {$node}{suspicious_score}{final_score} // 0;
     my $cache_meta = {};
+    my $comparison_membership = 'none';
     if (ref($cache -> {$node}{cache_meta}) eq 'HASH') {
         $cache_meta = $cache -> {$node}{cache_meta};
+    }
+    if ($comparison) {
+        $comparison_membership = _comparison_membership(
+            $comparison,
+            $node,
+        );
     }
     my @incoming_neighbors = graph_predecessors($subgraph, $node);
     my @outgoing_neighbors = graph_successors($subgraph, $node);
@@ -146,6 +193,8 @@ sub _build_single_node_data {
             score               => $score,
             is_isolated         => $is_isolated,
             has_main_connection => $has_main_connection,
+            comparison          => $comparison,
+            comparison_membership => $comparison_membership,
         }
     );
     my $interaction_type = _interaction_type(
@@ -172,6 +221,7 @@ sub _build_single_node_data {
         size               => $size,
         is_isolated        => _json_boolean($is_isolated),
         interaction_type   => $interaction_type,
+        comparison_group   => $comparison_membership,
         followers          => $cache -> {$node}{followers} // 0,
         following          => $cache -> {$node}{following} // 0,
         suspicious_score   => $score,
@@ -184,16 +234,33 @@ sub _build_single_node_data {
 }
 
 sub _node_color {
-    my($args)               = @_;
+    my ($args)               = @_;
     my $node                = $args -> {node};
     my $main_user           = $args -> {main_user};
     my $suspicious_calc     = $args -> {suspicious_calc};
     my $score               = $args -> {score};
     my $is_isolated         = $args -> {is_isolated};
     my $has_main_connection = $args -> {has_main_connection};
+    my $comparison          = $args -> {comparison};
+    my $comparison_membership = $args -> {comparison_membership};
 
     if ($node eq $main_user) {
         return '#6699cc';
+    }
+    if ($comparison) {
+        my $secondary_user = $comparison -> {secondary_user};
+        if ($node eq $secondary_user) {
+            return '#f59e0b';
+        }
+        if ($comparison_membership eq 'both') {
+            return '#a855f7';
+        }
+        if ($comparison_membership eq 'right') {
+            return '#fb7185';
+        }
+        if ($comparison_membership eq 'left') {
+            return '#22c55e';
+        }
     }
     if ($suspicious_calc && $score >= $SUSPICIOUS_SCORE_THRESHOLD) {
         return '#FF0000';
@@ -208,7 +275,7 @@ sub _node_color {
 }
 
 sub _interaction_type {
-    my($incoming_count, $outgoing_count) = @_;
+    my ($incoming_count, $outgoing_count) = @_;
     if ($incoming_count && $outgoing_count) {
         return 'bidirectional';
     }
@@ -222,10 +289,10 @@ sub _interaction_type {
 }
 
 sub _build_links_data {
-    my($subgraph) = @_;
+    my ($subgraph) = @_;
     my @links_data;
     for my $edge (graph_edges($subgraph)) {
-        my($source, $target, $attributes) = @{$edge};
+        my ($source, $target, $attributes) = @{$edge};
         my $interactions = $attributes -> {interactions};
         if (ref($interactions) ne 'ARRAY' || !@{$interactions}) {
             next;
@@ -282,15 +349,22 @@ sub _build_links_data {
 }
 
 sub _build_html_document {
-    my($main_user, $nodes_json, $links_json, $has_relationship_data_json,) =
-      @_;
+    my ($args) = @_;
+    my $main_user = $args -> {main_user};
+    my $nodes_json = $args -> {nodes_json};
+    my $links_json = $args -> {links_json};
+    my $has_relationship_data_json =
+      $args -> {has_relationship_data_json};
+    my $graph_title = $args -> {graph_title};
+    my $graph_subtitle = $args -> {graph_subtitle};
+    my $comparison_summary_html = $args -> {comparison_summary_html};
     my $html = <<'HTML';
 <!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Social Graph - __MAIN_USER__</title>
+  <title>__GRAPH_TITLE__</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -665,8 +739,9 @@ sub _build_html_document {
   <div class="wrap">
     <div class="header">
       <div>
-      <h1>Activity Map for @__MAIN_USER__</h1>
-      <div class="meta">FAIR interactive graph</div>
+      <h1>__GRAPH_TITLE__</h1>
+      <div class="meta">__GRAPH_SUBTITLE__</div>
+      __COMPARISON_SUMMARY__
       <div class="empty-state" id="empty-state"></div>
       <div class="focus-banner" id="focus-banner"></div>
       </div>
@@ -1836,14 +1911,67 @@ sub _build_html_document {
 HTML
 
     $html =~ s/__MAIN_USER__/$main_user/gxms;
+    $html =~ s/__GRAPH_TITLE__/$graph_title/gxms;
+    $html =~ s/__GRAPH_SUBTITLE__/$graph_subtitle/gxms;
+    $html =~ s/__COMPARISON_SUMMARY__/$comparison_summary_html/gxms;
     $html =~ s/__NODES_JSON__/$nodes_json/gxms;
     $html =~ s/__LINKS_JSON__/$links_json/gxms;
     $html =~ s/__HAS_RELATIONSHIP_DATA__/$has_relationship_data_json/gxms;
     return $html;
 }
 
+sub _comparison_membership {
+    my ($comparison, $node) = @_;
+    my $is_left = $comparison -> {left_nodes}{$node};
+    my $is_right = $comparison -> {right_nodes}{$node};
+
+    if ($is_left && $is_right) {
+        return 'both';
+    }
+    if ($is_left) {
+        return 'left';
+    }
+    if ($is_right) {
+        return 'right';
+    }
+    return 'none';
+}
+
+sub _comparison_subtitle {
+    my ($comparison) = @_;
+    my $connection = $comparison -> {connection};
+    if ($connection -> {has_connection}) {
+        my $path_length = $connection -> {path_length};
+        return "FAIR comparison report with connection path length $path_length";
+    }
+    return 'FAIR comparison report with no detected connection path';
+}
+
+sub _comparison_summary_html {
+    my ($comparison) = @_;
+    my $connection = $comparison -> {connection};
+    my $status_text = 'No connection found';
+    if ($connection -> {has_connection}) {
+        $status_text = 'Connection found';
+    }
+
+    my $path_text = 'No path available';
+    if ($connection -> {has_connection}) {
+        $path_text = join ' &rarr; ', @{$connection -> {path}};
+    }
+
+    my $shared_text = '0 shared neighbors';
+    if ($connection -> {shared_count} > 0) {
+        $shared_text =
+          $connection -> {shared_count} . ' shared neighbors';
+    }
+
+    return
+      qq{<div class="meta">$status_text | $shared_text | $path_text</div>};
+}
+
 sub _write_html_file {
-    my($html_file, $html) = @_;
+    my ($html_file, $html) = @_;
     open my $fh, '>:encoding(UTF-8)', $html_file
       or croak "Cannot write $html_file: $OS_ERROR";
     print {$fh} $html;
@@ -1852,7 +1980,7 @@ sub _write_html_file {
 }
 
 sub _json_boolean {
-    my($value) = @_;
+    my ($value) = @_;
     if ($value) {
         return JSON::PP::true;
     }
@@ -1860,7 +1988,7 @@ sub _json_boolean {
 }
 
 sub generate_html_from_files {
-    my($graph_path, $cache_path, $main_user, %opts) = @_;
+    my ($graph_path, $cache_path, $main_user, %opts) = @_;
 
     my $graph = load_graph($graph_path);
     my $cache = load_cache($cache_path);

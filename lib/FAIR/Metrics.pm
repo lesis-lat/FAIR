@@ -19,7 +19,7 @@ our @EXPORT_OK = qw(
 );
 
 sub entropy {
-    my($text) = @_;
+    my ($text) = @_;
     if (!defined $text || $text eq q{}) {
         return 0.0;
     }
@@ -41,7 +41,7 @@ sub entropy {
 }
 
 sub temporal_entropy {
-    my($timestamps) = @_;
+    my ($timestamps) = @_;
     if (!$timestamps || ref($timestamps) ne 'ARRAY' || !@{$timestamps}) {
         return 0.0;
     }
@@ -73,7 +73,7 @@ sub temporal_entropy {
 }
 
 sub burstiness {
-    my($timestamps) = @_;
+    my ($timestamps) = @_;
     if (!$timestamps || ref($timestamps) ne 'ARRAY' || @{$timestamps} < 2) {
         return 0.0;
     }
@@ -102,12 +102,12 @@ sub burstiness {
 }
 
 sub transform_burstiness {
-    my($value) = @_;
+    my ($value) = @_;
     return 1 - (($value + 1) / 2);
 }
 
 sub fuzzy_low {
-    my($value, $lower_bound, $upper_bound) = @_;
+    my ($value, $lower_bound, $upper_bound) = @_;
     if (!defined $lower_bound) {
         $lower_bound = 0.0;
     }
@@ -125,7 +125,7 @@ sub fuzzy_low {
 }
 
 sub fuzzy_high {
-    my($value, $lower_bound, $upper_bound) = @_;
+    my ($value, $lower_bound, $upper_bound) = @_;
     if (!defined $lower_bound) {
         $lower_bound = $HALF;
     }
@@ -155,7 +155,7 @@ sub _mean {
 }
 
 sub _stddev {
-    my($values, $mean) = @_;
+    my ($values, $mean) = @_;
     if (ref($values) ne 'ARRAY' || !@{$values}) {
         return 0.0;
     }
@@ -168,7 +168,7 @@ sub _stddev {
 }
 
 sub _log2 {
-    my($x) = @_;
+    my ($x) = @_;
     if (!defined $x || $x <= 0) {
         return 0;
     }

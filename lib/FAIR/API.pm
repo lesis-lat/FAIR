@@ -26,7 +26,7 @@ Readonly my $APIFY_RETRY_STATUS          => q{599};
 Readonly my $INITIAL_RETRY_DELAY_SECONDS => 1;
 
 sub load_api_keys {
-    my($path) = @_;
+    my ($path) = @_;
     if (!defined $path || !-e $path) {
         die "API keys file not found\n";
     }
@@ -43,7 +43,7 @@ sub load_api_keys {
             next;
         }
 
-        my($value) = split /=/xms, $line, 2;
+        my ($value) = split /=/xms, $line, 2;
         if (!defined $value) {
             $value = $line;
         }
@@ -63,7 +63,7 @@ sub load_api_keys {
 }
 
 sub fetch_profile {
-    my($username, $token) = @_;
+    my ($username, $token) = @_;
     my $input_data = {
         directUrls  => ["https://www.instagram.com/$username/"],
         resultsType => 'details',
@@ -79,7 +79,7 @@ sub fetch_profile {
 }
 
 sub extract_profile {
-    my($data) = @_;
+    my ($data) = @_;
     if (!$data || ref($data) ne 'HASH') {
         return;
     }
@@ -101,7 +101,7 @@ sub extract_profile {
 }
 
 sub fetch_posts {
-    my($username, $token, $limit) = @_;
+    my ($username, $token, $limit) = @_;
     if (!defined $limit) {
         $limit = $DEFAULT_POSTS_LIMIT;
     }
@@ -150,7 +150,7 @@ sub fetch_posts {
 }
 
 sub _run_actor_and_get_items {
-    my($actor_id, $input_data, $token) = @_;
+    my ($actor_id, $input_data, $token) = @_;
     if (!defined $token || $token eq q{}) {
         die "Missing API token\n";
     }
@@ -182,7 +182,7 @@ sub _run_actor_and_get_items {
 }
 
 sub _post_sync_with_retry {
-    my($http, $sync_url, $input_data) = @_;
+    my ($http, $sync_url, $input_data) = @_;
     my $delay_seconds = $INITIAL_RETRY_DELAY_SECONDS;
     my $response;
 
@@ -224,20 +224,20 @@ sub _post_sync_with_retry {
 }
 
 sub _normalize_actor_id {
-    my($actor_id) = @_;
+    my ($actor_id) = @_;
     $actor_id =~ s{/}{~}gxms;
     return $actor_id;
 }
 
 sub _url_escape {
-    my($text) = @_;
+    my ($text) = @_;
     $text //= q{};
     $text =~ s/([^\w.~-])/sprintf '%%%02X', ord $1/egxms;
     return $text;
 }
 
 sub _read_lines {
-    my($path) = @_;
+    my ($path) = @_;
     open my $fh, '<:encoding(UTF-8)', $path
       or die "Cannot read $path: $OS_ERROR\n";
     my @lines = <$fh>;
@@ -246,7 +246,7 @@ sub _read_lines {
 }
 
 sub _extract_items_from_payload {
-    my($payload) = @_;
+    my ($payload) = @_;
     if (ref($payload) eq 'ARRAY') {
         return $payload;
     }
